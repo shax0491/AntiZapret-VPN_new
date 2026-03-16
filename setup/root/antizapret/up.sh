@@ -223,15 +223,13 @@ else
 	iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
 fi
 
-# Network performance tuning
-ethtool -K $DEFAULT_INTERFACE tso on gso on gro on rx-udp-gro-forwarding on tx-checksum-ip-generic on rx-checksum on
-
 # SoftIRQ CPU balance
 printf '%x' $(( (1 << $(nproc)) - 1 )) | tee /sys/class/net/$DEFAULT_INTERFACE/queues/rx-*/rps_cpus >/dev/null
 
-# Set TX queue length
-for dev in /sys/class/net/*; do
-	ip link set "${dev##*/}" txqueuelen 10000
+# Set TX queue length and disables packet segmentation
+for dev in $(ls /sys/class/net); do
+	ip link set "$dev" txqueuelen 10000
+	ethtool -K "$dev" tso off gso off gro off rx-udp-gro-forwarding off
 done
 
 # Clear Knot Resolver cache
