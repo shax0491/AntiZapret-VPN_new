@@ -223,9 +223,6 @@ else
 	iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
 fi
 
-# SoftIRQ CPU balance
-printf '%x' $(( (1 << $(nproc)) - 1 )) | tee /sys/class/net/$DEFAULT_INTERFACE/queues/rx-*/rps_cpus >/dev/null
-
 # Set TX queue length and disables packet segmentation
 for dev in $(ls /sys/class/net); do
 	ip link set "$dev" txqueuelen 10000
