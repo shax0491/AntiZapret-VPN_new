@@ -1029,6 +1029,8 @@ netgate.com
 wiresock.net
 corvusbelli.com
 mailchimp.com
+api-dashboard.search.brave.com
+clawhub.ai
 
 # Блокирует DNS
 library.hydra.wiki
