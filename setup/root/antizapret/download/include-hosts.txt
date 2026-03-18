@@ -399,6 +399,7 @@ iaai.com
 bid.cars
 api.app.prod.grazie.aws.intellij.net
 stripe.com
+stripecdn.com
 sora.com
 yithemes.com
 vans.com
