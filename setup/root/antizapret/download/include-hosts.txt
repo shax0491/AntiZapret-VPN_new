@@ -1033,6 +1033,7 @@ mailchimp.com
 api-dashboard.search.brave.com
 clawhub.ai
 mastercard.com
+desmos.com
 
 # Блокирует DNS
 library.hydra.wiki
