@@ -1034,6 +1034,9 @@ api-dashboard.search.brave.com
 clawhub.ai
 mastercard.com
 desmos.com
+throne.com
+spacedesk.net
+movielab.one
 
 # Блокирует DNS
 library.hydra.wiki
