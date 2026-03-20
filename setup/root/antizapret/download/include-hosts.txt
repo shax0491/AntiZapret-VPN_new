@@ -1037,6 +1037,7 @@ desmos.com
 throne.com
 spacedesk.net
 movielab.one
+last.fm
 
 # Блокирует DNS
 library.hydra.wiki
