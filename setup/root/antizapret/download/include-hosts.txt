@@ -1032,6 +1032,7 @@ corvusbelli.com
 mailchimp.com
 api-dashboard.search.brave.com
 clawhub.ai
+mastercard.com
 
 # Блокирует DNS
 library.hydra.wiki
