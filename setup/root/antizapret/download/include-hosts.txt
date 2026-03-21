@@ -220,6 +220,7 @@ bosch.de
 weather.com
 #gemini.google.com
 claude.ai
+claude.com
 anthropic.com
 chatfuel.com
 notion.so
