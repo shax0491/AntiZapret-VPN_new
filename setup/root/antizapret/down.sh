@@ -29,6 +29,13 @@ fi
 [[ "$ALTERNATIVE_IP" == 'y' ]] && IP="${IP:-172}" || IP=10
 [[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
 
+WARP_INTERFACE=warp
+WARP_PATH="/etc/wireguard/$WARP_INTERFACE.conf"
+WARP_IP=
+if [[ -f "$WARP_PATH" ]]; then
+	WARP_IP=$(awk -F'= ' '/^Address/{print $2; exit}' "$WARP_PATH")
+fi
+
 # filter
 # INPUT connection tracking
 iptables -w -D INPUT -m conntrack --ctstate INVALID -j DROP
@@ -48,6 +55,7 @@ iptables -w -D FORWARD -s $IP.28.0.0/16 -m set --match-set antizapret-torrent sr
 iptables -w -D FORWARD -s $IP.29.0.0/16 -m connmark --mark 0x1 -m set ! --match-set antizapret-forward dst -j DROP
 # Client and server isolation
 iptables -w -D FORWARD ! -i $OUT_INTERFACE -d $IP.28.0.0/15 -j DROP
+iptables -w -D FORWARD ! -i $WARP_INTERFACE -d $IP.28.0.0/15 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -p tcp ! --dport 53 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -p udp ! --dport 53 -j DROP
 iptables -w -D FORWARD -d $IP.28.0.0/15 -j ACCEPT
@@ -112,15 +120,12 @@ iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 ! -d $FAKE_IP.0.0/15 -j CONNMA
 # Mapping fake IP to real IP
 iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 -d $FAKE_IP.0.0/15 -j ANTIZAPRET-MAPPING
 # SNAT/MASQUERADE VPN
-if [[ -z "$OUT_IP" ]]; then
-	iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j MASQUERADE
-else
-	iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
-fi
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $WARP_INTERFACE -j SNAT --to-source $WARP_IP
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $WARP_INTERFACE -j MASQUERADE
 
 # WARP
-WARP_INTERFACE=warp
-WARP_PATH="/etc/wireguard/$WARP_INTERFACE.conf"
 if [[ -f $WARP_PATH ]]; then
 	wg-quick down $WARP_PATH
 fi
