@@ -1,17 +1,18 @@
 #!/usr/bin/env -S python3 -u
 # -*- coding: utf-8 -*-
 
-import subprocess,time,argparse,threading,copy
+import subprocess,time,argparse,threading,copy,os
 from ipaddress import IPv4Network
 from dnslib import DNSRecord,RCODE,QTYPE,A
 from dnslib.server import DNSServer,DNSHandler,BaseResolver,DNSLogger,TCPServer
 
 class ProxyResolver(BaseResolver):
     def __init__(self,address,port,timeout,ip_range,cleanup_interval,cleanup_expiry,min_ttl,max_ttl):
+        self._env = os.environ.copy()
         self.ip_pool = {str(x) for x in IPv4Network(ip_range).hosts()}
         self.ip_map = {}
         # Loading existing mappings
-        result = subprocess.run(["iptables","-w","-t","nat","-S","ANTIZAPRET-MAPPING"],capture_output=True,text=True,check=True)
+        result = subprocess.run(["/usr/sbin/iptables","-w","-t","nat","-S","ANTIZAPRET-MAPPING"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,check=True,env=self._env)
         current_time = time.time()
         for line in result.stdout.splitlines():
             parts = line.split()
@@ -20,8 +21,11 @@ class ProxyResolver(BaseResolver):
             fake_ip = parts[3].split("/")[0]
             real_ip = parts[7]
             if not self.mapping_ip(real_ip,fake_ip,current_time):
-                subprocess.run(["iptables","-w","-t","nat","-F","ANTIZAPRET-MAPPING"],check=True)
-                raise SystemExit(1)
+                print("Restarting: Invalid loaded fake IPs mappings")
+                try:
+                    subprocess.run(["/usr/sbin/iptables","-w","-t","nat","-F","ANTIZAPRET-MAPPING"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                finally:
+                    os._exit(1)
         print(f"Loaded: {len(self.ip_map)} fake IPs")
         self.address = address
         self.port = port
@@ -45,7 +49,14 @@ class ProxyResolver(BaseResolver):
                 return None
             fake_ip = self.ip_pool.pop()
             self.ip_map[real_ip] = {"fake_ip": fake_ip,"last_access": current_time}
-        subprocess.run(["iptables","-w","-t","nat","-A","ANTIZAPRET-MAPPING","-d",fake_ip,"-j","DNAT","--to-destination",real_ip],check=True)
+        try:
+            subprocess.run(["/usr/sbin/iptables","-w","-t","nat","-A","ANTIZAPRET-MAPPING","-d",fake_ip,"-j","DNAT","--to-destination",real_ip],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+        except Exception as e:
+            print(f"Error: {e} (real_ip={real_ip} fake_ip={fake_ip})")
+            with self.lock:
+                del self.ip_map[real_ip]
+                self.ip_pool.add(fake_ip)
+            return None
         #print(f"Mapping: {fake_ip} to {real_ip}")
         return fake_ip
 
@@ -64,7 +75,15 @@ class ProxyResolver(BaseResolver):
     def cleanup_fake_ips_worker(self):
         while True:
             time.sleep(self.cleanup_interval)
-            self.cleanup_fake_ips()
+            try:
+                self.cleanup_fake_ips()
+            except Exception as e:
+                print(f"Error: {e}")
+                print(f"Restarting: Cleanup fake IPs failed")
+                try:
+                    subprocess.run(["/usr/sbin/iptables","-w","-t","nat","-F","ANTIZAPRET-MAPPING"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                finally:
+                    os._exit(1)
 
     def cleanup_fake_ips(self):
         with self.lock:
@@ -79,10 +98,10 @@ class ProxyResolver(BaseResolver):
                 del self.ip_map[real_ip]
                 rules.append(f"-D ANTIZAPRET-MAPPING -d {fake_ip} -j DNAT --to-destination {real_ip}")
                 #print(f"Unmapping: {fake_ip} to {real_ip}")
-            if cleanup_ips:
-                rules.append("COMMIT")
-                subprocess.run(["iptables-restore","-w","-n"],input="\n".join(rules).encode(),check=True)
-                print(f"Cleaned: {len(cleanup_ips)} expired fake IPs")
+        if cleanup_ips:
+            rules.append("COMMIT")
+            subprocess.run(["/usr/sbin/iptables-restore","-w","-n"],input="\n".join(rules).encode(),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+            print(f"Cleaned: {len(cleanup_ips)} expired fake IPs")
 
     def resolve(self,request,handler):
         try:
