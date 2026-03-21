@@ -1,4 +1,4 @@
--- Fallback to TLS forwarder on non-NOERROR response from default upstream
+-- Fallback to policy.TLS_FORWARD on non-NOERROR response or timeout from default policy.FORWARD
 
 local ffi = require('ffi')
 local kres = require('kres')
@@ -15,38 +15,37 @@ local M = {
 	}),
 }
 
-function M.layer.consume(state, req, pkt)
-	if state == kres.FAIL then
-		return state
-	end
+local switched = {}
+local produced = {}
 
+local function check_query(req)
 	local qry = req:current()
-
-	-- Only for forward / stub queries
-	if not qry.flags.FORWARD and not qry.flags.STUB then
-		return state
+	if not qry or qry.flags.CACHED or not qry.flags.FORWARD then
+		return nil
 	end
+	return qry
+end
 
-	-- Skip cached answers, TLS fallback forwarders and NOERROR responses
-	local rcode = pkt:rcode()
-	if qry.flags.CACHED or qry.flags.TCP or rcode == kres.rcode.NOERROR then
-		return state
+local function do_fallback(state, req, qry)
+	local key = tostring(req)
+	if switched[key] then
+		return false
 	end
+	switched[key] = true
 
-	-- Clear cache for this domain after cache_stash runs
 	local domain = kres.dname2str(qry.sname)
 	event.after(0, function()
 		cache.clear(domain, true)
 	end)
 
-	log_debug(ffi.C.LOG_GRP_POLICY, '[fallback] => domain %s, rcode %s, switching to TLS fallback forwarders', domain, tostring(rcode))
+	log_debug(ffi.C.LOG_GRP_POLICY, '[fallback_tls] => domain %s, switching from FORWARD to TLS_FORWARD', domain)
 
-	-- Replace current forwarding to TLS fallback forwarders
+	-- Reset current forwarding
 	if req.selection_context and req.selection_context.forwarding_targets then
 		req.selection_context.forwarding_targets.len = 0
 	end
 
-	-- Reset failure counter for this request
+	-- Reset failure counter
 	if req.count_fail_row ~= nil then
 		req.count_fail_row = 0
 	end
@@ -54,7 +53,56 @@ function M.layer.consume(state, req, pkt)
 	M.action(state, req)
 	ffi.C.kr_server_selection_init(qry)
 
-	return kres.FAIL
+	return true
+end
+
+-- Produce this request before sending to upstream
+function M.layer.produce(state, req, pkt)
+	local qry = check_query(req)
+	if not qry then
+		return state
+	end
+
+	local key = tostring(req)
+
+	-- First produce for this request, skip TLS fallback
+	if not produced[key] then
+		produced[key] = true
+		return state
+	end
+
+	-- Already switched this request to TLS fallback
+	if switched[key] then
+		return state
+	end
+
+	do_fallback(state, req, qry)
+	return state
+end
+
+-- Consume reply from upstream or from cache
+function M.layer.consume(state, req, pkt)
+	local qry = check_query(req)
+	if not qry then
+		return state
+	end
+
+	if pkt:rcode() == kres.rcode.NOERROR then
+		return state
+	end
+
+	if do_fallback(state, req, qry) then
+		return kres.FAIL
+	end
+	return state
+end
+
+-- Finish for this request
+function M.layer.finish(state, req)
+	local key = tostring(req)
+	switched[key] = nil
+	produced[key] = nil
+	return state
 end
 
 return M
