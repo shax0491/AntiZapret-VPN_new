@@ -337,8 +337,7 @@ download.teamviewer.com
 dl.teamviewer.com
 community.teamviewer.com
 freeimages.com
-3dwarehouse.sketchup.com
-extensions.sketchup.com
+sketchup.com
 ghostrc.game.idtech.services
 indeed.com
 acurapartswarehouse.com
