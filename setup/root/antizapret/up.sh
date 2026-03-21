@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+shopt -s nullglob
 
 cd /root/antizapret
 
@@ -223,10 +224,16 @@ else
 	iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
 fi
 
-# Set TX queue length and disables packet segmentation
+# Network tuning
+CPU_MASK=$(printf '%x' $(( (1 << $(nproc)) - 1 )))
 for dev in $(ls /sys/class/net); do
+	# Set new TX queue length
 	ip link set "$dev" txqueuelen 10000
+	# Disable packet segmentation
 	ethtool -K "$dev" tso off gso off gro off rx-udp-gro-forwarding off
+	[[ -e "/sys/class/net/$dev/device" ]] || continue
+	# Enable SoftIRQ CPU balance
+	echo "$CPU_MASK" | tee /sys/class/net/$dev/queues/rx-*/rps_cpus >/dev/null
 done
 
 # Clear Knot Resolver cache
