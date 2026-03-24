@@ -1041,6 +1041,7 @@ last.fm
 boataround.com
 yachtsbt.com
 trustpilot.com
+d5cdn.com
 
 # Блокирует DNS
 library.hydra.wiki
