@@ -1044,6 +1044,8 @@ trustpilot.com
 d5cdn.com
 gns3.com
 mcdn.co
+territorial.io
+scene7.com
 
 # Блокирует DNS
 library.hydra.wiki
