@@ -9,14 +9,13 @@ local M = {
 	action = policy.TLS_FORWARD({
 		-- TLS fallback forwarders
 		{'1.1.1.1', hostname='cloudflare-dns.com'},
-		{'9.9.9.10', hostname='dns.quad9.net'},
-		{'76.76.2.0', hostname='p0.freedns.controld.com'},
+		{'9.9.9.10', hostname='dns10.quad9.net'},
+		{'76.76.2.11', hostname='p0.freedns.controld.com'},
 		{'86.54.11.100', hostname='unfiltered.joindns4.eu'}
 	}),
 }
 
 local switched = {}
-local produced = {}
 
 local function check_query(req)
 	local qry = req:current()
@@ -56,34 +55,18 @@ local function do_fallback(state, req, qry)
 	return true
 end
 
--- Produce this request before sending to upstream
-function M.layer.produce(state, req, pkt)
-	local qry = check_query(req)
-	if not qry then
-		return state
-	end
-
-	local key = tostring(req)
-
-	-- First produce for this request, skip TLS fallback
-	if not produced[key] then
-		produced[key] = true
-		return state
-	end
-
-	-- Already switched this request to TLS fallback
-	if switched[key] then
-		return state
-	end
-
-	do_fallback(state, req, qry)
-	return state
-end
-
 -- Consume reply from upstream or from cache
 function M.layer.consume(state, req, pkt)
 	local qry = check_query(req)
 	if not qry then
+		return state
+	end
+
+	-- Timeout/transport errors
+	if not pkt then
+		if do_fallback(state, req, qry) then
+			return kres.FAIL
+		end
 		return state
 	end
 
@@ -101,7 +84,6 @@ end
 function M.layer.finish(state, req)
 	local key = tostring(req)
 	switched[key] = nil
-	produced[key] = nil
 	return state
 end
 
