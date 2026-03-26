@@ -1,4 +1,4 @@
--- Fallback to policy.TLS_FORWARD on non-NOERROR response or timeout from default policy.FORWARD
+-- Fallback on non-NOERROR or timeout from the default resolver
 
 local ffi = require('ffi')
 local kres = require('kres')
@@ -6,20 +6,14 @@ ffi.cdef("void kr_server_selection_init(struct kr_query *qry);")
 
 local M = {
 	layer = {},
-	action = policy.TLS_FORWARD({
-		-- TLS fallback forwarders
-		{'1.1.1.1', hostname='cloudflare-dns.com'},
-		{'9.9.9.10', hostname='dns10.quad9.net'},
-		{'76.76.2.11', hostname='p0.freedns.controld.com'},
-		{'86.54.11.100', hostname='unfiltered.joindns4.eu'}
-	}),
+	action = policy.FORWARD({'1.1.1.1', '9.9.9.10', '77.88.8.8', '193.58.251.251'})
 }
 
-local switched = {}
+local fallback = {}
 
 local function check_query(req)
 	local qry = req:current()
-	if not qry or qry.flags.CACHED or not qry.flags.FORWARD then
+	if not qry or qry.flags.CACHED then
 		return nil
 	end
 	return qry
@@ -27,17 +21,18 @@ end
 
 local function do_fallback(state, req, qry)
 	local key = tostring(req)
-	if switched[key] then
+	if fallback[key] then
 		return false
 	end
-	switched[key] = true
+	fallback[key] = true
 
-	local domain = kres.dname2str(qry.sname)
+	local qname = kres.dname2str(qry.sname)
+	local qtype = kres.tostring.type[qry.stype]
 	event.after(0, function()
-		cache.clear(domain, true)
+		cache.clear(qname, true)
 	end)
 
-	log_debug(ffi.C.LOG_GRP_POLICY, '[fallback_tls] => domain %s, switching from FORWARD to TLS_FORWARD', domain)
+	log_debug(ffi.C.LOG_GRP_POLICY, '[fallback] => fallback policy applied for %s %s', qname, qtype)
 
 	-- Reset current forwarding
 	if req.selection_context and req.selection_context.forwarding_targets then
@@ -53,6 +48,21 @@ local function do_fallback(state, req, qry)
 	ffi.C.kr_server_selection_init(qry)
 
 	return true
+end
+
+-- Produce this request before sending to upstream
+function M.layer.produce(state, req, pkt)
+	local qry = check_query(req)
+	if not qry then
+		return state
+	end
+
+	if not req.count_fail_row or req.count_fail_row == 0 then
+		return state
+	end
+
+	do_fallback(state, req, qry)
+	return state
 end
 
 -- Consume reply from upstream or from cache
@@ -83,7 +93,7 @@ end
 -- Finish for this request
 function M.layer.finish(state, req)
 	local key = tostring(req)
-	switched[key] = nil
+	fallback[key] = nil
 	return state
 end
 
