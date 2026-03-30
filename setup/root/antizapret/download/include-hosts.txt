@@ -1048,6 +1048,7 @@ territorial.io
 scene7.com
 mail.com
 react-hook-form.com
+shop.gameloft.com
 
 # Блокирует DNS
 library.hydra.wiki
