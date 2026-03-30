@@ -1046,6 +1046,7 @@ gns3.com
 mcdn.co
 territorial.io
 scene7.com
+mail.com
 
 # Блокирует DNS
 library.hydra.wiki
