@@ -362,6 +362,7 @@ ptc.com
 bsg.brave.com
 trionworlds.com
 capcut.com
+capcutapi.com
 hume.ai
 promods.net
 metopera.org
@@ -1049,6 +1050,7 @@ scene7.com
 mail.com
 react-hook-form.com
 shop.gameloft.com
+usps.com
 
 # Блокирует DNS
 library.hydra.wiki
