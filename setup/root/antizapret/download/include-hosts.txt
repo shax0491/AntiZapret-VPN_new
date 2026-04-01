@@ -1051,6 +1051,7 @@ mail.com
 react-hook-form.com
 shop.gameloft.com
 usps.com
+instructables.com
 
 # Блокирует DNS
 library.hydra.wiki
