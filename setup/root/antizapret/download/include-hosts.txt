@@ -1053,6 +1053,7 @@ shop.gameloft.com
 usps.com
 instructables.com
 ammyy.com
+live.cdpred.services
 
 # Блокирует DNS
 library.hydra.wiki
