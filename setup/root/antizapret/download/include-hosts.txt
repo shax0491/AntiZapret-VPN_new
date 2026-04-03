@@ -199,7 +199,7 @@ wonderclub.com
 wunderground.com
 yourdictionary.com
 zoosk.com
-go.microsoft.com
+#go.microsoft.com
 download.microsoft.com
 update.microsoft.com
 prss.microsoft.com
