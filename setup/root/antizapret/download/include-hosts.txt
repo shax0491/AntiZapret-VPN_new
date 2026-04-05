@@ -698,9 +698,7 @@ expedia.de
 travel-assets.com
 usher.ttvnw.net
 thetrainline.com
-sydney.bing.com
-edgeservices.bing.com
-rewards.bing.com
+bing.com
 msa.fr
 jetbrains.com
 xe.com
