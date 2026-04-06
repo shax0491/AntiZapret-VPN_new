@@ -1053,6 +1053,7 @@ instructables.com
 ammyy.com
 live.cdpred.services
 sidefx.com
+primedope.com
 
 # Блокирует DNS
 library.hydra.wiki
