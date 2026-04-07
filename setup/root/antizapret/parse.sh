@@ -1,5 +1,9 @@
 #!/bin/bash
 
+###
+sed -i 's/^ALTERNATIVE_IP=/ALTERNATIVE_CLIENT_IP=/' /root/antizapret/setup
+###
+
 set -e
 shopt -s nullglob
 
@@ -47,7 +51,7 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	# Выводим результат
 	echo "$(wc -l < result/route-ips.txt) - route-ips.txt"
 
-	[[ "$ALTERNATIVE_IP" == 'y' ]] && IP="${IP:-172}" || IP=10
+	[[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP="${CLIENT_IP:-172}" || IP=10
 	[[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
 
 	# Создаем файл для OpenVPN и файлы маршрутов для роутеров

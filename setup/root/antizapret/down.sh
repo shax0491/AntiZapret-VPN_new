@@ -7,34 +7,37 @@ source setup
 
 if [[ -z "$DEFAULT_INTERFACE" ]]; then
 	DEFAULT_INTERFACE="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'dev \K\S+')"
-fi
-if [[ -z "$DEFAULT_INTERFACE" ]]; then
-	echo 'Default network interface not found!'
-	exit 1
-fi
-
-DEFAULT_IP="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')"
-if [[ -z "$DEFAULT_IP" ]]; then
-	echo 'Default IPv4 address not found!'
-	exit 2
-fi
-
-if [[ -z "$OUT_INTERFACE" ]]; then
-	OUT_INTERFACE="$DEFAULT_INTERFACE"
-	if [[ -z "$OUT_IP" ]]; then
-		OUT_IP="$DEFAULT_IP"
+	if [[ -z "$DEFAULT_INTERFACE" ]]; then
+		echo 'Default network interface not found!'
+		exit 1
+	fi
+	DEFAULT_IP="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')"
+	if [[ -z "$DEFAULT_IP" ]]; then
+		echo 'Default IPv4 address not found!'
+		exit 2
 	fi
 fi
 
-[[ "$ALTERNATIVE_IP" == 'y' ]] && IP="${IP:-172}" || IP=10
+if [[ -z "$ANTIZAPRET_OUT_INTERFACE" ]]; then
+	ANTIZAPRET_OUT_INTERFACE=$DEFAULT_INTERFACE
+	if [[ -z "$ANTIZAPRET_OUT_IP" ]]; then
+		ANTIZAPRET_OUT_IP=$DEFAULT_IP
+	fi
+fi
+if [[ -z "$VPN_OUT_INTERFACE" ]]; then
+	VPN_OUT_INTERFACE=$DEFAULT_INTERFACE
+	if [[ -z "$VPN_OUT_IP" ]]; then
+		VPN_OUT_IP=$DEFAULT_IP
+	fi
+fi
+
+[[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP="${CLIENT_IP:-172}" || IP=10
 [[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
 
 WARP_INTERFACE=warp
 WARP_PATH="/etc/wireguard/$WARP_INTERFACE.conf"
-WARP_IP=
-if [[ -f "$WARP_PATH" ]]; then
-	WARP_IP=$(awk -F'= ' '/^Address/{print $2; exit}' "$WARP_PATH")
-fi
+WARP_IP=$(awk -F'= ' '/^Address/{print $2; exit}' "$WARP_PATH")
+WARP_IP="${WARP_IP:-172.16.0.2}"
 
 # filter
 # INPUT connection tracking
@@ -54,8 +57,12 @@ iptables -w -D FORWARD -s $IP.28.0.0/16 -m set --match-set antizapret-torrent sr
 # Restrict forwarding
 iptables -w -D FORWARD -s $IP.29.0.0/16 -m connmark --mark 0x1 -m set ! --match-set antizapret-forward dst -j DROP
 # Client and server isolation
-iptables -w -D FORWARD ! -i $OUT_INTERFACE -d $IP.28.0.0/15 -j DROP
+iptables -w -D FORWARD ! -i $ANTIZAPRET_OUT_INTERFACE -d $IP.28.0.0/15 -j DROP
 iptables -w -D FORWARD ! -i $WARP_INTERFACE -d $IP.28.0.0/15 -j DROP
+iptables -w -D FORWARD ! -i $ANTIZAPRET_OUT_INTERFACE -d $IP.29.0.0/16 -j DROP
+iptables -w -D FORWARD ! -i $WARP_INTERFACE -d $IP.29.0.0/16 -j DROP
+iptables -w -D FORWARD ! -i $VPN_OUT_INTERFACE -d $IP.28.0.0/16 -j DROP
+iptables -w -D FORWARD ! -i $WARP_INTERFACE -d $IP.28.0.0/16 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -p tcp ! --dport 53 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -p udp ! --dport 53 -j DROP
 iptables -w -D FORWARD -d $IP.28.0.0/15 -j ACCEPT
@@ -120,10 +127,18 @@ iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 ! -d $FAKE_IP.0.0/15 -j CONNMA
 # Mapping fake IP to real IP
 iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 -d $FAKE_IP.0.0/15 -j ANTIZAPRET-MAPPING
 # SNAT/MASQUERADE VPN
-iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
-iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j MASQUERADE
-iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $WARP_INTERFACE -j SNAT --to-source $WARP_IP
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $ANTIZAPRET_OUT_INTERFACE -j MASQUERADE
 iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $WARP_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $ANTIZAPRET_OUT_INTERFACE -j SNAT --to-source $ANTIZAPRET_OUT_IP
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/15 -o $WARP_INTERFACE -j SNAT --to-source $WARP_IP
+iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -o $ANTIZAPRET_OUT_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -o $WARP_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -o $ANTIZAPRET_OUT_INTERFACE -j SNAT --to-source $ANTIZAPRET_OUT_IP
+iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -o $WARP_INTERFACE -j SNAT --to-source $WARP_IP
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -o $VPN_OUT_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -o $WARP_INTERFACE -j MASQUERADE
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -o $VPN_OUT_INTERFACE -j SNAT --to-source $VPN_OUT_IP
+iptables -w -t nat -D POSTROUTING -s $IP.28.0.0/16 -o $WARP_INTERFACE -j SNAT --to-source $WARP_IP
 
 # WARP
 if [[ -f $WARP_PATH ]]; then

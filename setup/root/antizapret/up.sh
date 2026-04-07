@@ -10,32 +10,47 @@ source setup
 
 if [[ -z "$DEFAULT_INTERFACE" ]]; then
 	DEFAULT_INTERFACE="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'dev \K\S+')"
-fi
-if [[ -z "$DEFAULT_INTERFACE" ]]; then
-	echo 'Default network interface not found!'
-	exit 1
-fi
-
-DEFAULT_IP="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')"
-if [[ -z "$DEFAULT_IP" ]]; then
-	echo 'Default IPv4 address not found!'
-	exit 2
-fi
-
-if [[ -z "$OUT_INTERFACE" ]]; then
-	OUT_INTERFACE="$DEFAULT_INTERFACE"
-	if [[ -z "$OUT_IP" ]]; then
-		OUT_IP="$DEFAULT_IP"
+	if [[ -z "$DEFAULT_INTERFACE" ]]; then
+		echo 'Default network interface not found!'
+		exit 1
+	fi
+	DEFAULT_IP="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')"
+	if [[ -z "$DEFAULT_IP" ]]; then
+		echo 'Default IPv4 address not found!'
+		exit 2
 	fi
 fi
 
-[[ "$ALTERNATIVE_IP" == 'y' ]] && IP="${IP:-172}" || IP=10
+if [[ -z "$ANTIZAPRET_OUT_INTERFACE" ]]; then
+	ANTIZAPRET_OUT_INTERFACE=$DEFAULT_INTERFACE
+	if [[ -z "$ANTIZAPRET_OUT_IP" ]]; then
+		ANTIZAPRET_OUT_IP=$DEFAULT_IP
+	fi
+fi
+
+if [[ -z "$VPN_OUT_INTERFACE" ]]; then
+	VPN_OUT_INTERFACE=$DEFAULT_INTERFACE
+	if [[ -z "$VPN_OUT_IP" ]]; then
+		VPN_OUT_IP=$DEFAULT_IP
+	fi
+fi
+
+[[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP="${CLIENT_IP:-172}" || IP=10
 [[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
 
 # WARP
 WARP_INTERFACE=warp
 WARP_PATH="/etc/wireguard/$WARP_INTERFACE.conf"
-if [[ "$WARP_OUTBOUND" == 'y' ]]; then
+
+if [[ "$ANTIZAPRET_WARP" == 'y' || "$VPN_WARP" == 'y' ]]; then
+	WARP_RULE=
+	if [[ "$ANTIZAPRET_WARP" == 'y' && "$VPN_WARP" == 'y' ]]; then
+		WARP_RULE="$IP.28.0.0/15"
+	elif [[ "$ANTIZAPRET_WARP" == 'y' ]]; then
+		WARP_RULE="$IP.29.0.0/16"
+	elif [[ "$VPN_WARP" == 'y' ]]; then
+		WARP_RULE="$IP.28.0.0/16"
+	fi
 	set +e
 	echo "Starting $WARP_INTERFACE..."
 	PRIVATE_KEY=$(wg genkey)
@@ -55,12 +70,12 @@ Address = $ADDRESS
 MTU = 1420
 Table = 13335
 PostUp = ip link set dev $WARP_INTERFACE txqueuelen 10000
-PostUp = ip rule add from $IP.28.0.0/15 to $IP.28.0.0/15 lookup main priority 5000 || true
-PostUp = ip rule add from $IP.28.0.0/15 to $FAKE_IP.0.0/15 lookup main priority 5000 || true
-PostUp = ip rule add from $IP.28.0.0/15 lookup 13335 priority 10000 || true
-PostDown = ip rule del from $IP.28.0.0/15 to $IP.28.0.0/15 priority 5000
-PostDown = ip rule del from $IP.28.0.0/15 to $FAKE_IP.0.0/15 priority 5000
-PostDown = ip rule del from $IP.28.0.0/15 lookup 13335 priority 10000
+PostUp = ip rule add from $WARP_RULE to $IP.28.0.0/15 lookup main priority 5000 || true
+PostUp = ip rule add from $WARP_RULE to $FAKE_IP.0.0/15 lookup main priority 5000 || true
+PostUp = ip rule add from $WARP_RULE lookup 13335 priority 10000 || true
+PostDown = ip rule del from $WARP_RULE to $IP.28.0.0/15 priority 5000
+PostDown = ip rule del from $WARP_RULE to $FAKE_IP.0.0/15 priority 5000
+PostDown = ip rule del from $WARP_RULE lookup 13335 priority 10000
 
 [Peer]
 PublicKey = $PUBLIC_KEY
@@ -72,10 +87,16 @@ Endpoint = $ENDPOINT" > $WARP_PATH
 
 	if [[ $? -eq 0 ]]; then
 		echo "Started $WARP_INTERFACE: $ENDPOINT connected"
-		OUT_INTERFACE="$WARP_INTERFACE"
-		OUT_IP="$ADDRESS"	
+		if [[ "$ANTIZAPRET_WARP" == 'y' ]]; then
+			ANTIZAPRET_OUT_INTERFACE=$WARP_INTERFACE
+			ANTIZAPRET_OUT_IP=$ADDRESS
+		fi
+		if [[ "$VPN_WARP" == 'y' ]]; then
+			VPN_OUT_INTERFACE=$WARP_INTERFACE
+			VPN_OUT_IP=$ADDRESS
+		fi
 	else
-		echo "Starting $WARP_INTERFACE failed! Use $OUT_INTERFACE"
+		echo "Starting $WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 	fi
 	set -e
 else
@@ -122,7 +143,12 @@ if [[ "$RESTRICT_FORWARD" == 'y' ]]; then
 fi
 # Client and server isolation
 if [[ "$CLIENT_ISOLATION" == 'y' ]]; then
-	iptables -w -I FORWARD 2 ! -i $OUT_INTERFACE -d $IP.28.0.0/15 -j DROP
+	if [[ "$ANTIZAPRET_OUT_INTERFACE" == "$VPN_OUT_INTERFACE" ]]; then
+		iptables -w -I FORWARD 2 ! -i $ANTIZAPRET_OUT_INTERFACE -d $IP.28.0.0/15 -j DROP
+	else
+		iptables -w -I FORWARD 2 ! -i $ANTIZAPRET_OUT_INTERFACE -d $IP.29.0.0/16 -j DROP
+		iptables -w -I FORWARD 2 ! -i $VPN_OUT_INTERFACE -d $IP.28.0.0/16 -j DROP
+	fi
 	iptables -w -I INPUT 2 -s $IP.28.0.0/15 -p tcp ! --dport 53 -j DROP
 	iptables -w -I INPUT 2 -s $IP.28.0.0/15 -p udp ! --dport 53 -j DROP
 else
@@ -218,10 +244,23 @@ fi
 iptables -w -t nat -S ANTIZAPRET-MAPPING &>/dev/null || iptables -w -t nat -N ANTIZAPRET-MAPPING
 iptables -w -t nat -A PREROUTING -s $IP.29.0.0/16 -d $FAKE_IP.0.0/15 -j ANTIZAPRET-MAPPING
 # SNAT/MASQUERADE VPN
-if [[ -z "$OUT_IP" ]]; then
-	iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j MASQUERADE
+if [[ "$ANTIZAPRET_OUT_INTERFACE" == "$VPN_OUT_INTERFACE" && "$ANTIZAPRET_OUT_IP" == "$VPN_OUT_IP" ]]; then
+	if [[ -z "$ANTIZAPRET_OUT_IP" ]]; then
+		iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $ANTIZAPRET_OUT_INTERFACE -j MASQUERADE
+	else
+		iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $ANTIZAPRET_OUT_INTERFACE -j SNAT --to-source $ANTIZAPRET_OUT_IP
+	fi
 else
-	iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/15 -o $OUT_INTERFACE -j SNAT --to-source $OUT_IP
+	if [[ -z "$ANTIZAPRET_OUT_IP" ]]; then
+		iptables -w -t nat -A POSTROUTING -s $IP.29.0.0/16 -o $ANTIZAPRET_OUT_INTERFACE -j MASQUERADE
+	else
+		iptables -w -t nat -A POSTROUTING -s $IP.29.0.0/16 -o $ANTIZAPRET_OUT_INTERFACE -j SNAT --to-source $ANTIZAPRET_OUT_IP
+	fi
+	if [[ -z "$VPN_OUT_IP" ]]; then
+		iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/16 -o $VPN_OUT_INTERFACE -j MASQUERADE
+	else
+		iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/16 -o $VPN_OUT_INTERFACE -j SNAT --to-source $VPN_OUT_IP
+	fi
 fi
 
 # Network tuning

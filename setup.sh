@@ -94,8 +94,12 @@ until [[ "$OPENVPN_DCO" =~ (y|n) ]]; do
 	read -rp 'Turn on OpenVPN DCO? [y/n]: ' -e -i y OPENVPN_DCO
 done
 echo
-until [[ "$WARP_OUTBOUND" =~ (y|n) ]]; do
-	read -rp $'Use Cloudflare WARP for \001\e[1;32m\002all VPN\001\e[0m\002 outbound traffic? [y/n]: ' -e -i n WARP_OUTBOUND
+until [[ "$ANTIZAPRET_WARP" =~ (y|n) ]]; do
+	read -rp $'Use Cloudflare WARP for \001\e[1;32m\002AntiZapret VPN\e[0m\002 (antizapret-*) outbound traffic? [y/n]: ' -e -i n ANTIZAPRET_WARP
+done
+echo
+until [[ "$VPN_WARP" =~ (y|n) ]]; do
+	read -rp $'Use Cloudflare WARP for \001\e[1;32m\002full VPN\e[0m\002 (vpn-*) outbound traffic? [y/n]: ' -e -i n VPN_WARP
 done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mAntiZapret VPN\e[0m (antizapret-*):'
@@ -138,11 +142,11 @@ done
 echo
 echo 'Default IP address range:     10.28.0.0/15'
 echo 'Alternative IP address range: 172.28.0.0/15'
-until [[ "$ALTERNATIVE_IP" =~ (y|n) ]]; do
-	read -rp 'Use alternative range of IP addresses? [y/n]: ' -e -i n ALTERNATIVE_IP
+until [[ "$ALTERNATIVE_CLIENT_IP" =~ (y|n) ]]; do
+	read -rp 'Use alternative range of IP addresses? [y/n]: ' -e -i n ALTERNATIVE_CLIENT_IP
 done
 echo
-[[ "$ALTERNATIVE_IP" == 'y' ]] && IP=172 || IP=10
+[[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP=172 || IP=10
 echo "Default FAKE IP address range:     $IP.30.0.0/15"
 echo 'Alternative FAKE IP address range: 198.18.0.0/15'
 until [[ "$ALTERNATIVE_FAKE_IP" =~ (y|n) ]]; do
@@ -408,11 +412,12 @@ rm -rf /root/custom
 echo "SETUP_DATE=$(date --iso-8601=seconds)
 OPENVPN_PATCH=$OPENVPN_PATCH
 OPENVPN_DCO=$OPENVPN_DCO
-WARP_OUTBOUND=$WARP_OUTBOUND
+ANTIZAPRET_WARP=$ANTIZAPRET_WARP
+VPN_WARP=$VPN_WARP
 ANTIZAPRET_DNS=$ANTIZAPRET_DNS
 VPN_DNS=$VPN_DNS
 BLOCK_ADS=$BLOCK_ADS
-ALTERNATIVE_IP=$ALTERNATIVE_IP
+ALTERNATIVE_CLIENT_IP=$ALTERNATIVE_CLIENT_IP
 ALTERNATIVE_FAKE_IP=$ALTERNATIVE_FAKE_IP
 OPENVPN_BACKUP_TCP=$OPENVPN_BACKUP_TCP
 OPENVPN_BACKUP_UDP=$OPENVPN_BACKUP_UDP
@@ -440,9 +445,12 @@ GOOGLE_INCLUDE=$GOOGLE_INCLUDE
 AKAMAI_INCLUDE=$AKAMAI_INCLUDE
 CLEAR_HOSTS=y
 DEFAULT_INTERFACE=
-OUT_INTERFACE=
-OUT_IP=
-IP=
+DEFAULT_IP=
+ANTIZAPRET_OUT_INTERFACE=
+ANTIZAPRET_OUT_IP=
+VPN_OUT_INTERFACE=
+VPN_OUT_IP=
+CLIENT_IP=
 FAKE_IP=" > /tmp/antizapret/setup/root/antizapret/setup
 
 # Создаем папки для кэша Knot Resolver
@@ -512,15 +520,15 @@ elif [[ "$VPN_DNS" == '8' ]]; then
 	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/84.21.189.133, 193.23.209.189/' /etc/wireguard/templates/vpn-client*.conf
 fi
 
-# Используем альтернативные диапазоны подменных IPv4-адресов
+# Используем альтернативный диапазон подменных IPv4-адресов
 # 10(172).28.0.0/15 => 198.18.0.0/15
 if [[ "$ALTERNATIVE_FAKE_IP" == 'y' ]]; then
 	sed -i 's/10\.30\./198\.18\./g' /root/antizapret/proxy.py
 fi
 
-# Используем альтернативные диапазоны IPv4-адресов
+# Используем альтернативный диапазон клиентских IPv4-адресов
 # 10.28.0.0/15 => 172.28.0.0/15
-if [[ "$ALTERNATIVE_IP" == 'y' ]]; then
+if [[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]]; then
 	sed -i 's/10\./172\./g' /root/antizapret/proxy.py
 	sed -i 's/10\./172\./g' /etc/knot-resolver/kresd.conf
 	sed -i 's/10\./172\./g' /etc/openvpn/server/*.conf
