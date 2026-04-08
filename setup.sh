@@ -34,13 +34,13 @@ CODENAME="$(lsb_release -cs)"
 ARCH="$(dpkg --print-architecture)"
 
 if [[ "$OS" == 'debian' ]]; then
-	if (( VERSION < 12 )); then
-		echo "Error: Debian $VERSION is not supported! Minimal supported version is 12"
+	if (( VERSION < 13 )); then
+		echo "Error: Debian $VERSION is not supported! Minimal supported version is 13"
 		exit 5
 	fi
 elif [[ "$OS" == 'ubuntu' ]]; then
-	if (( VERSION < 22 )); then
-		echo "Error: Ubuntu $VERSION is not supported! Minimal supported version is 22"
+	if (( VERSION < 24 )); then
+		echo "Error: Ubuntu $VERSION is not supported! Minimal supported version is 24"
 		exit 6
 	fi
 else
