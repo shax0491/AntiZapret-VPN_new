@@ -140,17 +140,17 @@ until [[ "$BLOCK_ADS" =~ (y|n) ]]; do
 	read -rp $'Enable blocking ads, trackers, malware and phishing websites in \001\e[1;32m\002AntiZapret VPN\001\e[0m\002 (antizapret-*) based on AdGuard and OISD rules? [y/n]: ' -e -i y BLOCK_ADS
 done
 echo
-echo 'Default IP address range:     10.28.0.0/15'
-echo 'Alternative IP address range: 172.28.0.0/15'
+echo 'Default CLIENT IP address range:     10.28.0.0/15'
+echo 'Alternative CLIENT IP address range: 172.28.0.0/15'
 until [[ "$ALTERNATIVE_CLIENT_IP" =~ (y|n) ]]; do
-	read -rp 'Use alternative range of IP addresses? [y/n]: ' -e -i n ALTERNATIVE_CLIENT_IP
+	read -rp 'Use alternative CLIENT IP address range? [y/n]: ' -e -i n ALTERNATIVE_CLIENT_IP
 done
 echo
 [[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP=172 || IP=10
 echo "Default FAKE IP address range:     $IP.30.0.0/15"
 echo 'Alternative FAKE IP address range: 198.18.0.0/15'
 until [[ "$ALTERNATIVE_FAKE_IP" =~ (y|n) ]]; do
-	read -rp 'Use alternative range of FAKE IP addresses? [y/n]: ' -e -i n ALTERNATIVE_FAKE_IP
+	read -rp 'Use alternative range of FAKE IP addresses? [y/n]: ' -e -i y ALTERNATIVE_FAKE_IP
 done
 echo
 until [[ "$OPENVPN_BACKUP_TCP" =~ (y|n) ]]; do
