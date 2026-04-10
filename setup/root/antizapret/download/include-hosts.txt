@@ -1057,6 +1057,7 @@ primedope.com
 onefootball.com
 semanticscholar.org
 apidog.com
+duckdns.org
 
 # Блокирует DNS
 library.hydra.wiki
