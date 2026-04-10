@@ -1056,6 +1056,7 @@ sidefx.com
 primedope.com
 onefootball.com
 semanticscholar.org
+apidog.com
 
 # Блокирует DNS
 library.hydra.wiki
