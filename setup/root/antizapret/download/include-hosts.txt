@@ -1060,6 +1060,7 @@ apidog.com
 duckdns.org
 bigcommerce.com
 mcusercontent.com
+gl-inet.com
 
 # Блокирует DNS
 library.hydra.wiki
