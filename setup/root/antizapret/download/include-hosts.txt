@@ -1059,6 +1059,7 @@ semanticscholar.org
 apidog.com
 duckdns.org
 bigcommerce.com
+mcusercontent.com
 
 # Блокирует DNS
 library.hydra.wiki
