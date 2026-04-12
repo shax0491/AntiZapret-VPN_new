@@ -1058,6 +1058,7 @@ onefootball.com
 semanticscholar.org
 apidog.com
 duckdns.org
+bigcommerce.com
 
 # Блокирует DNS
 library.hydra.wiki
