@@ -162,7 +162,7 @@ until [[ "$OPENVPN_BACKUP_UDP" =~ (y|n) ]]; do
 done
 echo
 until [[ "$WIREGUARD_BACKUP" =~ (y|n) ]]; do
-	read -rp 'Use ports 540, 580 as backup for WireGuard/AmneziaWG connections? [y/n]: ' -e -i y WIREGUARD_BACKUP
+	read -rp 'Use UDP ports 540, 580 as backup for WireGuard/AmneziaWG connections? [y/n]: ' -e -i y WIREGUARD_BACKUP
 done
 echo
 until [[ "$OPENVPN_DUPLICATE" =~ (y|n) ]]; do
