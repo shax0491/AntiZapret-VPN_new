@@ -1063,6 +1063,7 @@ mcusercontent.com
 gl-inet.com
 eoptolink.com
 fs.com
+grassvalley.com
 
 # Блокирует DNS
 library.hydra.wiki
