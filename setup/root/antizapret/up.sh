@@ -67,7 +67,7 @@ if [[ "$ANTIZAPRET_WARP" == 'y' || "$VPN_WARP" == 'y' ]]; then
 	echo "[Interface]
 PrivateKey = $PRIVATE_KEY
 Address = $ADDRESS
-MTU = 1420
+MTU = 1280
 Table = 13335
 PostUp = ip link set dev $WARP_INTERFACE txqueuelen 10000
 PostUp = ip rule add from $WARP_RULE to $IP.28.0.0/15 lookup main priority 5000 || true
