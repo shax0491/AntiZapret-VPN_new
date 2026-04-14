@@ -1065,6 +1065,7 @@ eoptolink.com
 fs.com
 grassvalley.com
 signwell.com
+aboutamazon.com
 
 # Блокирует DNS
 library.hydra.wiki
