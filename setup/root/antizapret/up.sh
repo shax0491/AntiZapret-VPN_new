@@ -275,6 +275,8 @@ for dev in $(ls /sys/class/net); do
 	[[ -e "/sys/class/net/$dev/device" ]] || continue
 	# Enable SoftIRQ CPU balance
 	echo "$CPU_MASK" | tee /sys/class/net/$dev/queues/rx-*/rps_cpus >/dev/null
+	# Set new fq root packet limits
+	tc qdisc replace dev "$dev" root fq limit 100000 flow_limit 1000
 done
 
 # Clear Knot Resolver cache
