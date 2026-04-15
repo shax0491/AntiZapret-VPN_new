@@ -1066,6 +1066,8 @@ fs.com
 grassvalley.com
 signwell.com
 aboutamazon.com
+bambuddy.cool
+superspl.at
 
 # Блокирует DNS
 library.hydra.wiki
