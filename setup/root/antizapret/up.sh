@@ -37,6 +37,7 @@ fi
 
 [[ "$ALTERNATIVE_CLIENT_IP" == 'y' ]] && IP="${CLIENT_IP:-172}" || IP=10
 [[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
+MTU="${MTU:-1420}"
 
 # WARP
 WARP_INTERFACE=warp
@@ -67,7 +68,7 @@ if [[ "$ANTIZAPRET_WARP" == 'y' || "$VPN_WARP" == 'y' ]]; then
 	echo "[Interface]
 PrivateKey = $PRIVATE_KEY
 Address = $ADDRESS
-MTU = 1420
+MTU = $MTU
 Table = 13335
 PostUp = ip rule add from $WARP_RULE to $IP.28.0.0/15 lookup main priority 5000 || true
 PostUp = ip rule add from $WARP_RULE to $FAKE_IP.0.0/15 lookup main priority 5000 || true
@@ -277,6 +278,9 @@ for dev in $(ls /sys/class/net); do
 		ethtool -K "$dev" tso "$SEGMENTATION_OFFLOAD" gso "$SEGMENTATION_OFFLOAD" gro "$SEGMENTATION_OFFLOAD" rx-udp-gro-forwarding "$SEGMENTATION_OFFLOAD"
 		# Enable SoftIRQ CPU balance
 		echo "$CPU_MASK" | tee /sys/class/net/$dev/queues/rx-*/rps_cpus >/dev/null
+	else
+		# Set MTU
+		ip link set "$dev" mtu "$MTU"
 	fi
 done
 
