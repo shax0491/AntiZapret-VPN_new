@@ -69,7 +69,6 @@ PrivateKey = $PRIVATE_KEY
 Address = $ADDRESS
 MTU = 1420
 Table = 13335
-PostUp = ip link set dev $WARP_INTERFACE txqueuelen 10000
 PostUp = ip rule add from $WARP_RULE to $IP.28.0.0/15 lookup main priority 5000 || true
 PostUp = ip rule add from $WARP_RULE to $FAKE_IP.0.0/15 lookup main priority 5000 || true
 PostUp = ip rule add from $WARP_RULE lookup 13335 priority 10000 || true
@@ -269,14 +268,14 @@ fi
 CPU_MASK=$(printf '%x' $(( (1 << $(nproc)) - 1 )))
 for dev in $(ls /sys/class/net); do
 	# Set new TX queue length
-	ip link set "$dev" txqueuelen 10000
-	# Disable packet segmentation
-	ethtool -K "$dev" tso off gso off gro off rx-udp-gro-forwarding off
+	ip link set "$dev" txqueuelen "$TXQUEUELEN"
+	# Packet segmentation offload (tso/gso/gro/rx-udp-gro-forwarding)
+	ethtool -K "$dev" tso "$SEGMENTATION_OFFLOAD" gso "$SEGMENTATION_OFFLOAD" gro "$SEGMENTATION_OFFLOAD" rx-udp-gro-forwarding "$SEGMENTATION_OFFLOAD"
 	[[ -e "/sys/class/net/$dev/device" ]] || continue
 	# Enable SoftIRQ CPU balance
 	echo "$CPU_MASK" | tee /sys/class/net/$dev/queues/rx-*/rps_cpus >/dev/null
 	# Set new fq root packet limits
-	tc qdisc replace dev "$dev" root fq limit 100000 flow_limit 1000
+	#tc qdisc replace dev "$dev" root fq limit 100000 flow_limit 1000
 done
 
 # Clear Knot Resolver cache
