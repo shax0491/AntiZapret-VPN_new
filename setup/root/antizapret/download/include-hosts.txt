@@ -1073,6 +1073,8 @@ hardwoodgames.com
 silvercreekentertainment.com
 silvercrk.com
 waterpik.com
+openstreetmap.de
+documentfoundation.org
 
 # Блокирует DNS
 library.hydra.wiki
