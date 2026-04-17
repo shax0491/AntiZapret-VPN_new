@@ -144,6 +144,7 @@ link_socket_write_udp(struct link_socket *sock,\
 		--enable-small \
 		--enable-port-share \
 		--disable-debug \
+		--disable-dns-updown-by-default \
 		--disable-lzo \
 		--disable-lz4 \
 		--disable-ofb-cfb \
