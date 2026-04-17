@@ -1075,6 +1075,7 @@ silvercrk.com
 waterpik.com
 openstreetmap.de
 documentfoundation.org
+kef.com
 
 # Блокирует DNS
 library.hydra.wiki
