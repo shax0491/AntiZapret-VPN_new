@@ -1077,6 +1077,7 @@ openstreetmap.de
 documentfoundation.org
 kef.com
 images.salsify.com
+spacecowboys-games.com
 
 # Блокирует DNS
 library.hydra.wiki
