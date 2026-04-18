@@ -1076,6 +1076,7 @@ waterpik.com
 openstreetmap.de
 documentfoundation.org
 kef.com
+images.salsify.com
 
 # Блокирует DNS
 library.hydra.wiki
