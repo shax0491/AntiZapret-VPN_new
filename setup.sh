@@ -368,9 +368,10 @@ fi
 # Ставим необходимое ядро и пакеты
 apt-get update
 INSTALL=
-if [[ "$OS" == 'ubuntu' ]]; then
+# Обновляем ядро только на Ubuntu ниже 26 и Debian ниже 14
+if [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
 	INSTALL="linux-generic-hwe-${VERSION}.04"
-elif [[ "$OS" == 'debian' ]]; then
+elif [[ "$OS" == 'debian' ]] && (( VERSION < 14 )); then
 	INSTALL="-t $CODENAME-backports linux-image-$ARCH linux-headers-$ARCH"
 fi
 apt-get install -y $INSTALL git openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq ethtool iproute2
