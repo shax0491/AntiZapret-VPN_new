@@ -1,2 +1,11 @@
--- Custom query policies for AntiZapret VPN
---policy.add(policy.suffix(policy.FORWARD({'8.8.8.8', '8.8.4.4'}), {todname('example.com')}))
+-- Custom query policies for AntiZapret VPN (instance 1)
+-- ВНИМАНИЕ: этот файл подключается ДО deny.rpz/proxy.rpz и ДО глобального
+-- forward(dns1) в конце kresd.conf. Правило policy.all(...) здесь сломает
+-- блокировку рекламы и весь сплит-туннелинг AntiZapret. Используйте только
+-- policy.suffix для точечных доменов. Глобальный дефолтный резолвер (SkyDNS)
+-- задаётся в kresd.conf, функция forward(), case dns==9.
+
+-- Пример: принудительно резолвить конкретные ваши домены через SkyDNS+Quad9
+-- policy.add(policy.suffix(policy.FORWARD({'193.58.251.251', '9.9.9.9'}), {
+-- 	todname('example.com'),
+-- }))
