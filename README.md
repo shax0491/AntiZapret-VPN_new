@@ -97,12 +97,6 @@ bash <(wget -qO- --no-hsts --inet4-only [https://raw.githubusercontent.com/shax0
 
 Дождаться перезагрузки сервера и скопировать файлы подключений (`*.ovpn` и `*.conf`) с сервера из подпапок `/root/antizapret/client` (например через MobaXterm, FileZilla или WinSCP).
 
-### Установить дополнения:
-* **StatusOpenVPN** - статистика подключений и Telegram-бот
-* **AdminPanelAZ** - управление и конфигурация
-* **AZ-WARP** - расширенная маршрутизация через WARP
-* **vpn-control-panel** - управление и конфигурация
-
 ---
 
 ## 🛠 Настройка
