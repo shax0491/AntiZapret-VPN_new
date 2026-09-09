@@ -104,9 +104,6 @@ ROBLOX_IPS_PATH=download/roblox-ips.txt
 
 PROXY=https://proxy.cors.sh/
 
-# download <путь> <ссылка> [critical: y/n]
-# critical=y  -> при неудаче после всех ретраев и фолбэка через прокси скрипт падает (exit 2)
-# critical=n  -> при неудаче просто пропускает файл (return 1), апдейт продолжается
 function download {
 	local path="${1}"
 	local tmp_path="${path}.tmp"
