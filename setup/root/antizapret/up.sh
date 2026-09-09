@@ -265,6 +265,19 @@ iptables -w -I FORWARD 1 -m conntrack --ctstate INVALID -j DROP
 ip6tables -w -I FORWARD 1 -m conntrack --ctstate INVALID -j DROP
 iptables -w -I OUTPUT 1 -m conntrack --ctstate INVALID -j DROP
 ip6tables -w -I OUTPUT 1 -m conntrack --ctstate INVALID -j DROP
+# Kill-switch для WARP: если политика маршрутизации по fwmark не может отдать пакет в
+# warp-antizapret/warp-vpn (интерфейс упал, перезапускается или ещё не поднялся), ядро
+# проваливает lookup дальше по правилам и молча уходит в основную таблицу маршрутизации -
+# трафик со стоящей меткой 0x2 в этом случае маскарадится через ANTIZAPRET_OUT_INTERFACE
+# (см. POSTROUTING ниже, ветку с общим MASQUERADE на весь $IP.28.0.0/15 без фильтра по метке,
+# когда ANTIZAPRET_OUT_INTERFACE совпадает с VPN_OUT_INTERFACE) и уходит напрямую, светя
+# реальным IP. Жёстко режем такие пакеты, а не даём им прорваться в обход WARP.
+if [[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]]; then
+	iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -m mark --mark 0x2 ! -o $ANTIZAPRET_WARP_INTERFACE -j DROP
+fi
+if [[ "$VPN_WARP" == '3' ]]; then
+	iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -m mark --mark 0x2 ! -o $VPN_WARP_INTERFACE -j DROP
+fi
 # Telegram: подсеть 91.105.192.0/23 у части провайдеров не отвечает по IPv4. Приложение при
 # этом не переключается на другой рабочий IP Telegram, а уходит пробовать IPv6 и виснет
 # насмерть до перезапуска. REJECT вместо тихого DROP даёт клиенту мгновенный отказ

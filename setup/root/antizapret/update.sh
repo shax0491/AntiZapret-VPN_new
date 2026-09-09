@@ -221,11 +221,15 @@ warpscout_endpoint_is_stale() {
 
 # Лёгкий bash-фолбэк, если warpscout не установлен или не смог найти рабочий эндпоинт:
 # берём собственный одноразовый WARP-ключ (та же регистрация, что и в up.sh) и по очереди
-# пробуем несколько проверенных адресов Cloudflare WARP (162.159.192.0/22, подтверждено
-# RDAP как CLOUDFLARENET; 162.159.192.1 - официальный engage.cloudflareclient.com).
-# Каждый кандидат поднимается как ИЗОЛИРОВАННЫЙ интерфейс (Table=), не трогающий
-# основную таблицу маршрутизации сервера, проверяется через trace.cloudflare.com на
-# отсутствие loc=RU, и гарантированно опускается перед следующей попыткой.
+# пробуем несколько проверенных адресов Cloudflare WARP (162.159.192.0/22 и 188.114.96.0/24,
+# подтверждено RDAP как CLOUDFLARENET/CLOUDFLARENET-EU; 162.159.192.1 - официальный
+# engage.cloudflareclient.com). Каждый кандидат поднимается как ИЗОЛИРОВАННЫЙ интерфейс
+# (Table=), не трогающий основную таблицу маршрутизации сервера, проверяется через
+# trace.cloudflare.com на отсутствие loc=RU (это отсекает оба российских colo сразу -
+# DME в Москве и LED в Санкт-Петербурге, у обоих loc=RU) и гарантированно опускается перед
+# следующей попыткой. Проверка идёт через реальный WARP-туннель (UDP), а не HTTPS до
+# обычного anycast-края Cloudflare: последний у всех кандидатов резолвится в один и тот же
+# colo независимо от IP (проверено вручную) и для отбора WARP-эндпоинта непригоден.
 warpscout_bash_fallback() {
 	local candidates=(
 		'162.159.192.1:2408'
@@ -233,6 +237,8 @@ warpscout_bash_fallback() {
 		'162.159.195.10:2408'
 		'162.159.192.2:2408'
 		'162.159.193.5:2408'
+		'188.114.96.1:2408'
+		'188.114.97.1:2408'
 	)
 	local probe=/etc/wireguard/warpscout-probe.conf
 	local priv key reg pub addr loc ep found=n
@@ -275,14 +281,14 @@ warpscout_bash_fallback() {
 }
 
 if [[ "$WARP_PROVIDER" == 'cloudflare' ]] && { [[ "$ANTIZAPRET_WARP" != '1' ]] || [[ "$VPN_WARP" != '1' ]]; } && warpscout_endpoint_is_stale; then
-	log "WARP endpoint: refreshing best non-RU (DME) endpoint..."
+	log "WARP endpoint: refreshing best non-RU (DME/LED) endpoint..."
 	DONE=n
 	if command -v warpscout &>/dev/null; then
 		if [[ ! -s "$WARPSCOUT_ACCOUNT" ]]; then
 			timeout 30 warpscout register -a "$WARPSCOUT_ACCOUNT" &>>"$LOG_FILE" || log "warpscout: registration failed"
 		fi
 		if [[ -s "$WARPSCOUT_ACCOUNT" ]]; then
-			BEST="$(timeout 200 warpscout scan -a "$WARPSCOUT_ACCOUNT" -p wg -exclude-node DME -best -t 3 -jt 20 -no-report 2>>"$LOG_FILE" || true)"
+			BEST="$(timeout 200 warpscout scan -a "$WARPSCOUT_ACCOUNT" -p wg -exclude-node DME,LED -best -t 3 -jt 20 -no-report 2>>"$LOG_FILE" || true)"
 			if [[ "$BEST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
 				echo "$BEST" > "$WARPSCOUT_ENDPOINT_CACHE"
 				log "warpscout: best endpoint is $BEST"

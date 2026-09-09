@@ -65,6 +65,9 @@ ip6tables -w -D FORWARD -m conntrack --ctstate INVALID -j DROP
 # OUTPUT connection tracking
 iptables -w -D OUTPUT -m conntrack --ctstate INVALID -j DROP
 ip6tables -w -D OUTPUT -m conntrack --ctstate INVALID -j DROP
+# WARP kill-switch
+iptables -w -D FORWARD -s $IP.29.0.0/16 -m mark --mark 0x2 ! -o $ANTIZAPRET_WARP_INTERFACE -j DROP
+iptables -w -D FORWARD -s $IP.28.0.0/16 -m mark --mark 0x2 ! -o $VPN_WARP_INTERFACE -j DROP
 # Telegram dead subnet workaround
 iptables -w -D FORWARD -d 91.105.192.0/23 -j REJECT --reject-with icmp-port-unreachable
 iptables -w -D FORWARD -d 91.105.192.0/23 -p tcp -j REJECT --reject-with tcp-reset
