@@ -1,6 +1,6 @@
 # AntiZapret VPN + полный VPN
 
-Скрипт для установки на своём сервере AntiZapret VPN и обычного VPN, работает по протоколам OpenVPN (есть патч для обхода блокировки), WireGuard и AmneziaWG.
+Скрипт для установки на своём сервере AntiZapret VPN и обычного VPN, работает по протоколам OpenVPN (есть патч для обхода блокировки), WireGuard и AmneziaWG (1.5 и 2.0).
 
 AntiZapret VPN реализует технологию раздельного туннелирования.
 Через AntiZapret VPN (файлы `antizapret-*`) работают только определенные сайты и IP-адреса:
@@ -12,6 +12,8 @@ AntiZapret VPN реализует технологию раздельного т
 Все остальные сайты работают без VPN через вашего провайдера с максимальной доступной скоростью, не нарушая работу сайтов проверяющих наличие у вас Российского IP-адреса (госуслуги, банки, интернет-магазины, стриминговые сервисы и т.д.).
 
 Через полный VPN (файлы `vpn-*`) работают все сайты, доступные с вашего сервера, что позволяет обходить все ограничения.
+
+Для выхода в интернет (WARP-style egress) можно выбрать между **Proton VPN** (свой WireGuard-конфиг, без принудительного российского геовыхода) и **Cloudflare WARP** (автоматическая регистрация).
 
 ## ⚠️ Внимание!
 Для правильной работы AntiZapret VPN и полного VPN нужно:
@@ -58,13 +60,20 @@ AntiZapret VPN реализует технологию раздельного т
 * При ошибке загрузки файла подключения необходимо сократить длину имени файла до 32 (Windows) или 15 (Linux/Android/iOS) символов и удалить скобки.
 * **VPN-клиенты:** AmneziaWG (Windows), AmneziaWG (Android), AmneziaWG (Apple).
 
+### AmneziaWG 2.0 (плагин, ставится отдельным шагом после основной установки)
+* Устанавливается автоматически в конце `setup.sh` из отдельного форка: [AntiZapret-Amnezia-2](https://github.com/shax0491/AntiZapret-Amnezia-2).
+* Если загрузка или установка плагина не удалась (например, из-за временной сетевой проблемы), основная установка AntiZapret VPN всё равно считается успешной — скрипт выведет ошибку и точную команду для ручного повтора:
+```bash
+curl -fsSL 'https://raw.githubusercontent.com/shax0491/AntiZapret-Amnezia-2/main/setup-amneziawg2.sh' | bash
+```
+
 ---
 * Скрипт удаляет некоторые пакеты, в том числе UFW и Firewalld, при необходимости их необходимо установить и настроить вручную.
 * Скрипт отключает входящие подключения по IPv6 на сервере, а DNS АнтиЗапрета не возвращает IPv6-адреса (AAAA-записи) доменов.
 * Ваш сервер должен быть расположен за пределами России и стран бывшего Советского Союза, в противном случае разблокировка сайтов не гарантируется.
 * Поддерживаются Ubuntu 24.04 или Debian 13 или новее, для proxy.sh — Ubuntu 22.04 или Debian 12 или новее.
 * Протестировано на Ubuntu 24.04 и Debian 13 — Процессор: 1 core, Память: 1 Gb, Хранилище: 10 Gb, Внешний IPv4-адрес.
-* За основу взяты исходники, разработанные ValdikSS.
+* За основу взяты исходники, разработанные ValdikSS, доработанные [GubernievS](https://github.com/GubernievS/AntiZapret-VPN).
 
 ## ⚙️ Установка и обновление
 
@@ -72,13 +81,14 @@ AntiZapret VPN реализует технологию раздельного т
 Для установки или обновления в терминале под root выполнить:
 
 ```bash
-bash <(wget -qO- --no-hsts --inet4-only [https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/setup.sh](https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/setup.sh))
+bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/setup.sh)
 ```
 
 **Изменить настройки (или нажимать Enter для выбора значения по умолчанию):**
 * Установить патч для обхода блокировки протокола OpenVPN (только для UDP соединений)
 * Включить OpenVPN DCO
-* Включить Cloudflare WARP для исходящего трафика AntiZapret VPN и обычного VPN
+* Выбрать провайдера для WARP-style исходящего трафика: **Proton VPN** (нужно вставить свой WireGuard-конфиг из личного кабинета Proton при первом ANTIZAPRET_WARP/VPN_WARP ≠ "None") или **Cloudflare WARP** (авторегистрация, как раньше)
+* Включить Cloudflare WARP/Proton VPN для исходящего трафика AntiZapret VPN и обычного VPN
 * Выбрать DNS для AntiZapret VPN и обычного VPN
 * Включить блокировку рекламы, трекеров и фишинга в AntiZapret VPN и обычном VPN на основе правил AdGuard и OISD
 * Использовать альтернативные диапазоны IP-адресов клиентов: `172...` вместо `10...`
@@ -94,6 +104,10 @@ bash <(wget -qO- --no-hsts --inet4-only [https://raw.githubusercontent.com/shax0
 * Указать доменное имя для подключения к OpenVPN и WireGuard/AmneziaWG
 * Пустить все домены через AntiZapret VPN кроме российских доменов и доменов из `config/exclude-hosts.txt`
 * Добавить IP-адреса необходимые для работы: Discord, Telegram, WhatsApp, Roblox и Cloudflare
+
+Если для WARP-style egress выбран **Proton VPN**, скрипт попросит вставить содержимое WireGuard-конфига (Proton: Downloads → WireGuard configuration, или через `protonvpn-cli`) отдельно для AntiZapret VPN и/или полного VPN — вставьте текст и нажмите `Ctrl+D`.
+
+В конце установки скрипт также автоматически подтягивает и устанавливает плагин **AmneziaWG 2.0** из [github.com/shax0491/AntiZapret-Amnezia-2](https://github.com/shax0491/AntiZapret-Amnezia-2/blob/main/setup-amneziawg2.sh). Если это не нужно — прервите этот шаг (Ctrl+C) после появления сообщения "Installing AmneziaWG 2.0 plugin..." или удалите/закомментируйте соответствующий блок в конце `setup.sh` перед запуском.
 
 Дождаться перезагрузки сервера и скопировать файлы подключений (`*.ovpn` и `*.conf`) с сервера из подпапок `/root/antizapret/client` (например через MobaXterm, FileZilla или WinSCP).
 
@@ -152,6 +166,20 @@ nano /root/antizapret/config/include-ips.txt
 ```
 > После обновления списка АнтиЗапрета, клиентам OpenVPN (`antizapret-*.ovpn`) достаточно переподключиться к серверу. А клиентам WireGuard/AmneziaWG нужно добавить новые IP-адреса через запятую в конфигурационные файлы (`antizapret-*.conf`) в строке `AllowedIPs`.
 
+**7. Сменить или заполнить Proton VPN WireGuard-конфиг после установки**
+```bash
+nano /root/antizapret/setup
+```
+> Найдите переменные `PROTON_ANTIZAPRET_PRIVATE_KEY`, `PROTON_ANTIZAPRET_PUBLIC_KEY`, `PROTON_ANTIZAPRET_ADDRESS`, `PROTON_ANTIZAPRET_ENDPOINT_HOST`, `PROTON_ANTIZAPRET_ENDPOINT_PORT` (и аналогичные `PROTON_VPN_*`) и заполните их значениями из вашего Proton WireGuard-конфига. После правки перезапустите:
+```bash
+/root/antizapret/up.sh
+```
+
+**8. Установить/переустановить плагин AmneziaWG 2.0 вручную**
+```bash
+curl -fsSL 'https://raw.githubusercontent.com/shax0491/AntiZapret-Amnezia-2/main/setup-amneziawg2.sh' | bash
+```
+
 ---
 
 ## 🌍 Настроить прокси-сервер
@@ -162,7 +190,7 @@ nano /root/antizapret/config/include-ips.txt
 
 Для установки или обновления в терминале под root выполнить:
 ```bash
-bash <(wget -qO- --no-hsts --inet4-only [https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/proxy.sh](https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/proxy.sh))
+bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/proxy.sh)
 ```
 
 1. Ввести IPv4-адрес зарубежного сервера АнтиЗапрета.
@@ -225,3 +253,9 @@ ipset list antizapret-block6 | grep -E '.*:.*:.*:' | sort -u
 
 **7. Как работает опциональная защита SSH?**
 Подключение блокируется на 1 минуту с 6-й попытки подключения с одного IP-адреса. Если в течение 1 минуты попыток не было — лимит сбрасывается.
+
+**8. Почему при выборе Cloudflare WARP как провайдера ничего вставлять не нужно?**
+Cloudflare WARP регистрируется автоматически через открытый API (как и в оригинальном скрипте) — ключи и адрес генерируются на лету при каждом запуске `up.sh`, если они ещё не сохранены в `/root/antizapret/setup`. Если вместо этого выбран Proton VPN — WireGuard-конфиг нужно получить вручную в личном кабинете Proton и вставить один раз при установке (или позже — см. пункт 7 раздела «Настройка»).
+
+**9. Почему я не вижу пункт про отключение IPv6 в меню установки?**
+IPv6 в этом форке полностью отключается на сервере, как и в оригинальном upstream-скрипте — отдельного переключателя нет. Причина: раздельное туннелирование AntiZapret VPN построено на трюке "fake-IP + DNS", который реализован только для IPv4 (proxy.py, RPZ-зоны knot-resolver, NAT-маппинг ANTIZAPRET-MAPPING). Понижение до dual-stack потребовало бы дублирования этого механизма для IPv6, что создаёт риск утечки трафика клиентов мимо туннеля при заходе на IPv6-only ресурсы — поэтому отключение IPv6 оставлено обязательным.
