@@ -351,19 +351,23 @@ fi
 
 echo 'Installation, please wait...'
 
-systemctl disable --now kresd@1
-systemctl disable --now kresd@2
-systemctl disable --now antizapret
-systemctl disable --now antizapret-update.timer
-systemctl disable --now antizapret-update
-systemctl disable --now openvpn-server@antizapret-udp
-systemctl disable --now openvpn-server@vpn-udp
-systemctl disable --now openvpn-server@antizapret-tcp
-systemctl disable --now openvpn-server@vpn-tcp
-systemctl disable --now wg-quick@antizapret
-systemctl disable --now wg-quick@vpn
-systemctl disable --now amneziawg@antizapret2
-systemctl disable --now amneziawg@vpn2
+# На первой установке (и на переустановке до появления AmneziaWG 2.0) часть этих юнитов
+# ещё не существует - systemctl тогда пишет красным "Unit file ... does not exist" в stderr,
+# хотя это не ошибка, а норма. 2>/dev/null || true гасит это сообщение и не даёт коду
+# возврата что-либо сломать (script в этом месте ещё выполняется без set -e).
+systemctl disable --now kresd@1 2>/dev/null || true
+systemctl disable --now kresd@2 2>/dev/null || true
+systemctl disable --now antizapret 2>/dev/null || true
+systemctl disable --now antizapret-update.timer 2>/dev/null || true
+systemctl disable --now antizapret-update 2>/dev/null || true
+systemctl disable --now openvpn-server@antizapret-udp 2>/dev/null || true
+systemctl disable --now openvpn-server@vpn-udp 2>/dev/null || true
+systemctl disable --now openvpn-server@antizapret-tcp 2>/dev/null || true
+systemctl disable --now openvpn-server@vpn-tcp 2>/dev/null || true
+systemctl disable --now wg-quick@antizapret 2>/dev/null || true
+systemctl disable --now wg-quick@vpn 2>/dev/null || true
+systemctl disable --now amneziawg@antizapret2 2>/dev/null || true
+systemctl disable --now amneziawg@vpn2 2>/dev/null || true
 
 apt-get purge -y ufw
 apt-get purge -y firewalld
