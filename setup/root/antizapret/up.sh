@@ -10,6 +10,32 @@ source setup
 
 WARP_PROVIDER="${WARP_PROVIDER:-cloudflare}"
 
+# Регистрация в Cloudflare WARP с повторными попытками. Один неудачный запрос к их API
+# (сетевой сбой, троттлинг) раньше давал пустой ответ, jq тихо возвращал "null"/пустую
+# строку, и скрипт поднимал wg-интерфейс с обрезанным конфигом (без PublicKey/Endpoint) -
+# либо получал заведомо нерабочий туннель, либо (в режиме "2", когда WARP - это основной
+# исходящий канал) молча оставался на основном интерфейсе сервера. Теперь при неудаче
+# всех попыток конфиг не создаётся и не поднимается вообще, а ключи возвращаются в
+# заведомо пустое состояние - вызывающий код обязан явно сообщить об ошибке.
+warp_cf_register() {
+	local pubkey="$1" attempt reg pub ep addr
+	for attempt in 1 2 3; do
+		reg="$(curl -sSL --connect-timeout 10 --max-time 20 -X POST 'https://api.cloudflareclient.com/v0a2158/reg' \
+			-H 'Content-Type: application/json' -d "{\"key\": \"$pubkey\"}" 2>/dev/null)" || true
+		pub="$(echo "$reg" | jq -r '.config.peers[0].public_key' 2>/dev/null)" || true
+		ep="$(echo "$reg" | jq -r '.config.peers[0].endpoint.host' 2>/dev/null)" || true
+		addr="$(echo "$reg" | jq -r '.config.interface.addresses.v4' 2>/dev/null)" || true
+		if [[ -n "$pub" && "$pub" != 'null' && -n "$ep" && "$ep" != 'null' && -n "$addr" && "$addr" != 'null' ]]; then
+			WARP_REG_PUBLIC_KEY="$pub"
+			WARP_REG_ENDPOINT="$ep"
+			WARP_REG_ADDRESS="$addr"
+			return 0
+		fi
+		[[ "$attempt" -lt 3 ]] && sleep 3
+	done
+	return 1
+}
+
 if [[ -z "$DEFAULT_INTERFACE" ]]; then
 	DEFAULT_INTERFACE="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'dev \K\S+')"
 	if [[ -z "$DEFAULT_INTERFACE" ]]; then
@@ -90,32 +116,37 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 		if [[ -z "$ANTIZAPRET_WARP_PRIVATE_KEY" || -z "$ANTIZAPRET_WARP_PUBLIC_KEY" || -z "$ANTIZAPRET_WARP_ENDPOINT" || -z "$ANTIZAPRET_WARP_ADDRESS" ]]; then
 			ANTIZAPRET_WARP_PRIVATE_KEY=$(wg genkey)
 			KEY=$(echo "$ANTIZAPRET_WARP_PRIVATE_KEY" | wg pubkey)
-			REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
-				-H 'Content-Type: application/json' \
-				-d "{\"key\": \"$KEY\"}")
+			if warp_cf_register "$KEY"; then
+				ANTIZAPRET_WARP_PUBLIC_KEY="$WARP_REG_PUBLIC_KEY"
+				ANTIZAPRET_WARP_ENDPOINT="$WARP_REG_ENDPOINT"
+				ANTIZAPRET_WARP_ADDRESS="$WARP_REG_ADDRESS/32"
 
-			ANTIZAPRET_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-			ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
-			ANTIZAPRET_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
-
-			# Эндпоинт, который сама Cloudflare выдаёт при регистрации, часто ведёт на
-			# московский узел (DME) с российской гео-локацией и DPI-фильтрацией с апреля
-			# 2026. Если warpscout (update.sh, раз в несколько дней) нашёл рабочий не-RU
-			# эндпоинт - используем его вместо предложенного Cloudflare. Публичный ключ
-			# пира общий для всех эндпоинтов WARP, поэтому подмена совместима с любым
-			# зарегистрированным ключом.
-			if [[ -s /etc/wireguard/warpscout-endpoint ]]; then
-				WARPSCOUT_EP="$(cat /etc/wireguard/warpscout-endpoint)"
-				if [[ "$WARPSCOUT_EP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
-					ANTIZAPRET_WARP_ENDPOINT="$WARPSCOUT_EP"
+				# Эндпоинт, который сама Cloudflare выдаёт при регистрации, часто ведёт на
+				# московский узел (DME) с российской гео-локацией и DPI-фильтрацией с апреля
+				# 2026. Если warpscout (update.sh, раз в несколько дней) нашёл рабочий не-RU
+				# эндпоинт - используем его вместо предложенного Cloudflare. Публичный ключ
+				# пира общий для всех эндпоинтов WARP, поэтому подмена совместима с любым
+				# зарегистрированным ключом.
+				if [[ -s /etc/wireguard/warpscout-endpoint ]]; then
+					WARPSCOUT_EP="$(cat /etc/wireguard/warpscout-endpoint)"
+					if [[ "$WARPSCOUT_EP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+						ANTIZAPRET_WARP_ENDPOINT="$WARPSCOUT_EP"
+					fi
 				fi
+			else
+				ANTIZAPRET_WARP_PRIVATE_KEY=
 			fi
 		fi
-		ANTIZAPRET_WARP_IP="${ANTIZAPRET_WARP_ADDRESS%%/*}"
 
-		[[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]] && ANTIZAPRET_FWMARK="fwmark 0x2 "
+		if [[ -z "$ANTIZAPRET_WARP_PRIVATE_KEY" || -z "$ANTIZAPRET_WARP_PUBLIC_KEY" || -z "$ANTIZAPRET_WARP_ENDPOINT" || -z "$ANTIZAPRET_WARP_ADDRESS" ]]; then
+			echo -e "\e[1;31mError: Cloudflare WARP registration for $ANTIZAPRET_WARP_INTERFACE failed after retries! Traffic will use $DEFAULT_INTERFACE.\e[0m"
+			rm -f $ANTIZAPRET_WARP_PATH
+		else
+			ANTIZAPRET_WARP_IP="${ANTIZAPRET_WARP_ADDRESS%%/*}"
 
-		echo "[Interface]
+			[[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]] && ANTIZAPRET_FWMARK="fwmark 0x2 "
+
+			echo "[Interface]
 PrivateKey = $ANTIZAPRET_WARP_PRIVATE_KEY
 Address = $ANTIZAPRET_WARP_ADDRESS
 MTU = 1420
@@ -131,16 +162,17 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
-		wg-quick up $ANTIZAPRET_WARP_PATH 2>/dev/null
+			wg-quick up $ANTIZAPRET_WARP_PATH 2>/dev/null
 
-		if [[ $? -eq 0 ]]; then
-			echo "Started $ANTIZAPRET_WARP_INTERFACE: $ANTIZAPRET_WARP_ENDPOINT connected"
-			if [[ "$ANTIZAPRET_WARP" == '2' ]]; then
-				ANTIZAPRET_OUT_INTERFACE=$ANTIZAPRET_WARP_INTERFACE
-				ANTIZAPRET_OUT_IP=$ANTIZAPRET_WARP_IP
+			if [[ $? -eq 0 ]]; then
+				echo "Started $ANTIZAPRET_WARP_INTERFACE: $ANTIZAPRET_WARP_ENDPOINT connected"
+				if [[ "$ANTIZAPRET_WARP" == '2' ]]; then
+					ANTIZAPRET_OUT_INTERFACE=$ANTIZAPRET_WARP_INTERFACE
+					ANTIZAPRET_OUT_IP=$ANTIZAPRET_WARP_IP
+				fi
+			else
+				echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 			fi
-		else
-			echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 		fi
 	fi
 	set -e
@@ -198,28 +230,33 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 		if [[ -z "$VPN_WARP_PRIVATE_KEY" || -z "$VPN_WARP_PUBLIC_KEY" || -z "$VPN_WARP_ENDPOINT" || -z "$VPN_WARP_ADDRESS" ]]; then
 			VPN_WARP_PRIVATE_KEY=$(wg genkey)
 			KEY=$(echo "$VPN_WARP_PRIVATE_KEY" | wg pubkey)
-			REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
-				-H 'Content-Type: application/json' \
-				-d "{\"key\": \"$KEY\"}")
+			if warp_cf_register "$KEY"; then
+				VPN_WARP_PUBLIC_KEY="$WARP_REG_PUBLIC_KEY"
+				VPN_WARP_ENDPOINT="$WARP_REG_ENDPOINT"
+				VPN_WARP_ADDRESS="$WARP_REG_ADDRESS/32"
 
-			VPN_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-			VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
-			VPN_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
-
-			# См. пояснение у ANTIZAPRET_WARP выше - используем найденный warpscout'ом
-			# не-RU эндпоинт вместо предложенного Cloudflare, если он есть в кэше.
-			if [[ -s /etc/wireguard/warpscout-endpoint ]]; then
-				WARPSCOUT_EP="$(cat /etc/wireguard/warpscout-endpoint)"
-				if [[ "$WARPSCOUT_EP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
-					VPN_WARP_ENDPOINT="$WARPSCOUT_EP"
+				# См. пояснение у ANTIZAPRET_WARP выше - используем найденный warpscout'ом
+				# не-RU эндпоинт вместо предложенного Cloudflare, если он есть в кэше.
+				if [[ -s /etc/wireguard/warpscout-endpoint ]]; then
+					WARPSCOUT_EP="$(cat /etc/wireguard/warpscout-endpoint)"
+					if [[ "$WARPSCOUT_EP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+						VPN_WARP_ENDPOINT="$WARPSCOUT_EP"
+					fi
 				fi
+			else
+				VPN_WARP_PRIVATE_KEY=
 			fi
 		fi
-		VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
 
-		[[ "$VPN_WARP" == '3' ]] && VPN_FWMARK="fwmark 0x2 "
+		if [[ -z "$VPN_WARP_PRIVATE_KEY" || -z "$VPN_WARP_PUBLIC_KEY" || -z "$VPN_WARP_ENDPOINT" || -z "$VPN_WARP_ADDRESS" ]]; then
+			echo -e "\e[1;31mError: Cloudflare WARP registration for $VPN_WARP_INTERFACE failed after retries! Traffic will use $DEFAULT_INTERFACE.\e[0m"
+			rm -f $VPN_WARP_PATH
+		else
+			VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
 
-		echo "[Interface]
+			[[ "$VPN_WARP" == '3' ]] && VPN_FWMARK="fwmark 0x2 "
+
+			echo "[Interface]
 PrivateKey = $VPN_WARP_PRIVATE_KEY
 Address = $VPN_WARP_ADDRESS
 MTU = 1420
@@ -235,16 +272,17 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
-		wg-quick up $VPN_WARP_PATH 2>/dev/null
+			wg-quick up $VPN_WARP_PATH 2>/dev/null
 
-		if [[ $? -eq 0 ]]; then
-			echo "Started $VPN_WARP_INTERFACE: $VPN_WARP_ENDPOINT connected"
-			if [[ "$VPN_WARP" == '2' ]]; then
-				VPN_OUT_INTERFACE=$VPN_WARP_INTERFACE
-				VPN_OUT_IP=$VPN_WARP_IP
+			if [[ $? -eq 0 ]]; then
+				echo "Started $VPN_WARP_INTERFACE: $VPN_WARP_ENDPOINT connected"
+				if [[ "$VPN_WARP" == '2' ]]; then
+					VPN_OUT_INTERFACE=$VPN_WARP_INTERFACE
+					VPN_OUT_IP=$VPN_WARP_IP
+				fi
+			else
+				echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 			fi
-		else
-			echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 		fi
 	fi
 	set -e
