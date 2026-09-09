@@ -22,19 +22,43 @@ rm -rf temp result
 mkdir -p temp result
 source setup
 
+# --- Точечная очистка кэша по изменившимся доменам ---
+# Работает ВСЕГДА, включая noclear/noclean (ночной автозапуск), в отличие
+# от полного cache.clear(), который под noclear/noclean намеренно пропускается.
+# ВАЖНО: на первой установке control-сокет kresd ещё не существует (служба
+# запускается позже), поэтому функция сразу выходит - чистить ещё нечего.
+# Также есть лимит max_purge: если изменилось слишком много доменов разом
+# (например при первом включении adblock), точечная чистка пропускается -
+# в этом случае проще положиться на естественное истечение TTL/полный clear.
 purge_changed_names() {
 	local old="$1" new="$2" sock="$3" label="$4"
+	local max_purge=2000
+	local n
+
+	[[ -S "$sock" ]] || return 0
 	[[ -f "$old" ]] || touch "$old"
 	[[ -f "$new" ]] || return 0
+
 	local changed count=0
-	changed="$(diff "$old" "$new" 2>/dev/null | grep -E '^[<>]' | sed -E 's/^[<>] //; s/^\*\.//; s/[[:space:]]+CNAME.*//' | grep -vE '^\$TTL|^@|^;' | sort -u)"
-	[[ -z "$changed" ]] && return 0
+	changed="$(diff "$old" "$new" 2>/dev/null | grep -E '^[<>]' | sed -E 's/^[<>] //; s/^\*\.//; s/[[:space:]]+CNAME.*//' | grep -vE '^\$TTL|^@|^;' | sort -u)" || true
+
+	if [[ -z "$changed" ]]; then
+		return 0
+	fi
+
+	n="$(wc -l <<< "$changed")"
+	if (( n > max_purge )); then
+		echo "$label: too many changed domains ($n), skipping targeted purge"
+		return 0
+	fi
+
 	while read -r name; do
 		[[ -z "$name" ]] && continue
-		echo "cache.clear('$name', true)" | socat - "$sock" &>/dev/null
+		echo "cache.clear('$name', true)" | socat - "$sock" &>/dev/null || true
 		count=$((count + 1))
 	done <<< "$changed"
 	echo "$label: targeted cache purge for $count changed domain(s)"
+	return 0
 }
 
 ###
@@ -257,6 +281,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sed -E '/\..*\./ s/^([0-9]*www[0-9]*|hd[0-9]*|[0-9]+)\.//' temp/include-hosts3.txt result/exclude-hosts.txt > temp/include-hosts4.txt
 	fi
 
+	# --- Схлопывание избыточных поддоменов ---
 	rev temp/include-hosts4.txt | LC_ALL=C sort | awk '
 	BEGIN { last = "" }
 	{
