@@ -485,8 +485,11 @@ rm -rf /tmp/amneziawg-go /tmp/amneziawg-tools
 # warpscout - подбор рабочего не-RU эндпоинта Cloudflare WARP (см. up.sh/update.sh).
 # Нужен только при авторегистрации через Cloudflare - у Proton своя явная точка подключения.
 # Ставится готовым бинарником из GitHub Releases (без выполнения стороннего install.sh).
+# Тег версии берём через редирект releases/latest (обычный github.com), а НЕ через
+# api.github.com - у него жёсткий лимит 60 запросов/час на IP, чего достаточно, чтобы
+# ловить "ошибку API" на VPS с общим/повторно используемым адресом.
 if [[ "$WARP_PROVIDER" == 'cloudflare' ]]; then
-	WARPSCOUT_TAG="$(curl -sf --connect-timeout 15 'https://api.github.com/repos/vernette/warpscout/releases/latest' | grep -oP '"tag_name":\s*"\K[^"]+')"
+	WARPSCOUT_TAG="$(curl -sI --connect-timeout 15 'https://github.com/vernette/warpscout/releases/latest' 2>/dev/null | grep -i '^location:' | grep -oP '/tag/\K\S+' | tr -d '\r')"
 	[[ "$ARCH" == 'arm64' ]] && WARPSCOUT_ARCH='arm64' || WARPSCOUT_ARCH='amd64'
 	if [[ -n "$WARPSCOUT_TAG" ]]; then
 		rm -rf /tmp/warpscout

@@ -198,35 +198,104 @@ download $DOALL_PATH $DOALL_LINK y || true
 
 source setup
 
-# --- WARP: подбор рабочего не-RU эндпоинта (warpscout) ---
-# Сканирование занимает несколько минут - гонять его на каждой перезагрузке (из up.sh)
-# нельзя. Поэтому результат кэшируется в файл вне /root/antizapret (переживает
-# переустановку) и обновляется здесь, в ночном update.sh, не чаще раза в WARPSCOUT_MAX_AGE_DAYS
-# дней. up.sh только читает готовый файл - сам никогда не сканирует.
+# --- WARP: подбор рабочего не-RU эндпоинта ---
+# Сканирование занимает время - гонять его на каждой перезагрузке (из up.sh) нельзя.
+# Результат кэшируется в файл вне /root/antizapret (переживает переустановку) и
+# обновляется здесь, в ночном update.sh, не чаще раза в WARPSCOUT_MAX_AGE_DAYS дней.
+# up.sh только читает готовый файл - сам никогда не сканирует.
+#
+# ВАЖНО про set -e: любое присваивание вида VAR="$(команда)" ПАДАЕТ весь скрипт под
+# set -e, если "команда" вернула ненулевой код (в отличие от `команда || true` без
+# присваивания). warpscout может завершиться с ошибкой API/сети на конкретном сервере -
+# отсюда крах update.sh, если не добавить `|| true` ВНУТРИ подстановки, как ниже.
 WARPSCOUT_ACCOUNT=/etc/wireguard/warpscout-account.json
 WARPSCOUT_ENDPOINT_CACHE=/etc/wireguard/warpscout-endpoint
 WARPSCOUT_MAX_AGE_DAYS=6
 
-if [[ "$WARP_PROVIDER" == 'cloudflare' ]] && { [[ "$ANTIZAPRET_WARP" != '1' ]] || [[ "$VPN_WARP" != '1' ]]; } && command -v warpscout &>/dev/null; then
-	STALE=y
-	if [[ -s "$WARPSCOUT_ENDPOINT_CACHE" ]]; then
-		AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$WARPSCOUT_ENDPOINT_CACHE" 2>/dev/null || echo 0) ) / 86400 ))
-		(( AGE_DAYS < WARPSCOUT_MAX_AGE_DAYS )) && STALE=n
+warpscout_endpoint_is_stale() {
+	[[ -s "$WARPSCOUT_ENDPOINT_CACHE" ]] || return 0
+	local age_days
+	age_days=$(( ( $(date +%s) - $(stat -c %Y "$WARPSCOUT_ENDPOINT_CACHE" 2>/dev/null || echo 0) ) / 86400 )) || true
+	[[ "$age_days" -ge "$WARPSCOUT_MAX_AGE_DAYS" ]]
+}
+
+# Лёгкий bash-фолбэк, если warpscout не установлен или не смог найти рабочий эндпоинт:
+# берём собственный одноразовый WARP-ключ (та же регистрация, что и в up.sh) и по очереди
+# пробуем несколько проверенных адресов Cloudflare WARP (162.159.192.0/22, подтверждено
+# RDAP как CLOUDFLARENET; 162.159.192.1 - официальный engage.cloudflareclient.com).
+# Каждый кандидат поднимается как ИЗОЛИРОВАННЫЙ интерфейс (Table=), не трогающий
+# основную таблицу маршрутизации сервера, проверяется через trace.cloudflare.com на
+# отсутствие loc=RU, и гарантированно опускается перед следующей попыткой.
+warpscout_bash_fallback() {
+	local candidates=(
+		'162.159.192.1:2408'
+		'162.159.193.10:2408'
+		'162.159.195.10:2408'
+		'162.159.192.2:2408'
+		'162.159.193.5:2408'
+	)
+	local probe=/etc/wireguard/warpscout-probe.conf
+	local priv key reg pub addr loc ep found=n
+
+	log "bash-fallback: registering a throwaway WARP key for endpoint probing..."
+	priv="$(wg genkey)" || return 1
+	key="$(echo "$priv" | wg pubkey)" || return 1
+	reg="$(curl -sSfL --connect-timeout 10 --max-time 20 -X POST 'https://api.cloudflareclient.com/v0a2158/reg' \
+		-H 'Content-Type: application/json' -d "{\"key\": \"$key\"}" 2>>"$LOG_FILE")" || true
+	[[ -n "$reg" ]] || { log "bash-fallback: registration failed, giving up"; return 1; }
+	pub="$(echo "$reg" | jq -r '.config.peers[0].public_key' 2>/dev/null)" || true
+	addr="$(echo "$reg" | jq -r '.config.interface.addresses.v4' 2>/dev/null)" || true
+	if [[ -z "$pub" || "$pub" == 'null' || -z "$addr" || "$addr" == 'null' ]]; then
+		log "bash-fallback: registration response looked wrong, giving up"
+		return 1
 	fi
-	if [[ "$STALE" == 'y' ]]; then
-		log "warpscout: refreshing best WARP endpoint (excluding RU/DME node)..."
+
+	for ep in "${candidates[@]}"; do
+		log "bash-fallback: probing $ep..."
+		printf '[Interface]\nPrivateKey = %s\nAddress = %s/32\nMTU = 1420\nTable = 51820\n\n[Peer]\nPublicKey = %s\nAllowedIPs = 0.0.0.0/0\nEndpoint = %s\nPersistentKeepalive = 15\n' \
+			"$priv" "$addr" "$pub" "$ep" > "$probe" || true
+		if timeout 15 wg-quick up "$probe" &>>"$LOG_FILE"; then
+			loc="$(curl -s --interface warpscout-probe --connect-timeout 5 --max-time 8 'https://www.cloudflare.com/cdn-cgi/trace' 2>>"$LOG_FILE" | grep -oP '^loc=\K..')" || true
+		else
+			loc=""
+		fi
+		timeout 10 wg-quick down "$probe" &>>"$LOG_FILE" || true
+		rm -f "$probe"
+		if [[ -n "$loc" && "$loc" != 'RU' ]]; then
+			log "bash-fallback: $ep looks non-RU (loc=$loc)"
+			echo "$ep" > "$WARPSCOUT_ENDPOINT_CACHE" || true
+			found=y
+			break
+		fi
+		log "bash-fallback: $ep rejected (loc='${loc:-none}')"
+	done
+
+	[[ "$found" == 'y' ]] || { log "bash-fallback: no working non-RU endpoint found, keeping previous cache (if any)"; return 1; }
+	return 0
+}
+
+if [[ "$WARP_PROVIDER" == 'cloudflare' ]] && { [[ "$ANTIZAPRET_WARP" != '1' ]] || [[ "$VPN_WARP" != '1' ]]; } && warpscout_endpoint_is_stale; then
+	log "WARP endpoint: refreshing best non-RU (DME) endpoint..."
+	DONE=n
+	if command -v warpscout &>/dev/null; then
 		if [[ ! -s "$WARPSCOUT_ACCOUNT" ]]; then
-			timeout 30 warpscout register -a "$WARPSCOUT_ACCOUNT" &>>"$LOG_FILE" || log "warpscout: registration failed, will retry next run"
+			timeout 30 warpscout register -a "$WARPSCOUT_ACCOUNT" &>>"$LOG_FILE" || log "warpscout: registration failed"
 		fi
 		if [[ -s "$WARPSCOUT_ACCOUNT" ]]; then
-			BEST="$(timeout 200 warpscout scan -a "$WARPSCOUT_ACCOUNT" -p wg -exclude-node DME -best -t 3 -jt 20 -no-report 2>>"$LOG_FILE")"
+			BEST="$(timeout 200 warpscout scan -a "$WARPSCOUT_ACCOUNT" -p wg -exclude-node DME -best -t 3 -jt 20 -no-report 2>>"$LOG_FILE" || true)"
 			if [[ "$BEST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
 				echo "$BEST" > "$WARPSCOUT_ENDPOINT_CACHE"
 				log "warpscout: best endpoint is $BEST"
+				DONE=y
 			else
-				log "warpscout: scan found nothing usable, keeping previous cached endpoint (if any)"
+				log "warpscout: scan did not return a usable endpoint"
 			fi
 		fi
+	else
+		log "warpscout not installed, using bash fallback"
+	fi
+	if [[ "$DONE" != 'y' ]]; then
+		warpscout_bash_fallback || true
 	fi
 fi
 
