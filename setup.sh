@@ -102,6 +102,14 @@ until [[ "$WIREGUARD_ENABLE" =~ (y|n) ]]; do
 	read -rp 'Enable WireGuard/AmneziaWG? [y/n]: ' -e -i y WIREGUARD_ENABLE
 done
 echo
+echo 'Choose AmneziaWG 2.0 first-packet masquerade type (helps bypass DPI):'
+echo '    1) TLS ClientHello - legacy, TLS-over-UDP, often filtered by DPI'
+echo '    2) QUIC Initial    - mimics QUIC/HTTP3 (recommended)'
+echo '    3) SIP INVITE      - mimics a VoIP call'
+until [[ "$AWG2_MASQUERADE" =~ ^[1-3]$ ]]; do
+	read -rp 'Masquerade type [1-3]: ' -e -i 2 AWG2_MASQUERADE
+done
+echo
 echo 'Choose anti-censorship patch for OpenVPN (UDP only):'
 echo '    1) None        - Do not install anti-censorship patch, or remove if already installed'
 echo '    2) Random      - Recommended by default, randomly selects Strong or Error-Free'
@@ -354,6 +362,8 @@ systemctl disable --now openvpn-server@antizapret-tcp
 systemctl disable --now openvpn-server@vpn-tcp
 systemctl disable --now wg-quick@antizapret
 systemctl disable --now wg-quick@vpn
+systemctl disable --now amneziawg@antizapret2
+systemctl disable --now amneziawg@vpn2
 
 apt-get purge -y ufw
 apt-get purge -y firewalld
@@ -433,12 +443,40 @@ if [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
 elif [[ "$OS" == 'debian' ]] && (( VERSION < 14 )); then
 	INSTALL="-t $CODENAME-backports linux-image-$ARCH linux-headers-$ARCH"
 fi
-apt-get install -y $INSTALL git openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq ethtool iproute2
+apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq ethtool iproute2
 apt-get autoremove --purge -y
 apt-get clean
 
 dpkg-reconfigure -f noninteractive unattended-upgrades
 git config --global http.version HTTP/1.1
+
+# AmneziaWG 2.0 (amneziawg-go, userspace) - собирается нативно вместе с основным VPN
+NEED_GO=y
+if command -v go &>/dev/null; then
+	GOMINOR="$(go version | grep -oP 'go1\.\K[0-9]+')"
+	[[ "$GOMINOR" -ge 24 ]] && NEED_GO=n
+fi
+if [[ "$NEED_GO" == 'y' ]]; then
+	GO_VER="$(curl -sf 'https://go.dev/dl/?mode=json' | grep -oP '"version":\s*"\Kgo[0-9.]+' | head -1)"
+	[[ "$ARCH" == 'arm64' ]] && GOARCH='arm64' || GOARCH='amd64'
+	curl -sfL "https://dl.google.com/go/${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
+	ln -sf /usr/local/go/bin/go /usr/local/bin/go
+fi
+
+systemctl disable --now amneziawg@antizapret2 2>/dev/null || true
+systemctl disable --now amneziawg@vpn2 2>/dev/null || true
+
+rm -rf /tmp/amneziawg-go
+git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-go.git /tmp/amneziawg-go
+make -C /tmp/amneziawg-go
+install -m 755 /tmp/amneziawg-go/amneziawg-go /usr/local/bin/amneziawg-go
+
+rm -rf /tmp/amneziawg-tools
+git clone --depth=1 https://github.com/amnezia-vpn/amneziawg-tools.git /tmp/amneziawg-tools
+make -C /tmp/amneziawg-tools/src
+make -C /tmp/amneziawg-tools/src install PREFIX=/usr/local
+
+rm -rf /tmp/amneziawg-go /tmp/amneziawg-tools
 
 rm -rf /tmp/dnslib
 git clone https://github.com/paulc/dnslib.git /tmp/dnslib
@@ -481,6 +519,7 @@ OPENVPN_TCP_ENABLE=$OPENVPN_TCP_ENABLE
 WIREGUARD_ENABLE=$WIREGUARD_ENABLE
 OPENVPN_PATCH=$OPENVPN_PATCH
 OPENVPN_DCO=$OPENVPN_DCO
+AWG2_MASQUERADE=$AWG2_MASQUERADE
 WARP_PROVIDER=$WARP_PROVIDER
 ANTIZAPRET_WARP=$ANTIZAPRET_WARP
 ANTIZAPRET_WARP_PRIVATE_KEY=
@@ -614,7 +653,7 @@ sed -i -z -E 's/policy\.DENY_MSG\([^)]*kres\.extended_error\.NOTSUP[^)]*\)/polic
 
 /root/antizapret/doall.sh noclear
 
-/root/antizapret/client.sh 7
+/root/antizapret/client.sh 4
 
 systemctl enable kresd@1
 systemctl enable kresd@2
@@ -632,6 +671,10 @@ fi
 if [[ "$WIREGUARD_ENABLE" == 'y' ]]; then
 	systemctl enable wg-quick@antizapret
 	systemctl enable wg-quick@vpn
+	systemctl enable amneziawg@antizapret2
+	systemctl enable amneziawg@vpn2
+	systemctl restart amneziawg@antizapret2
+	systemctl restart amneziawg@vpn2
 fi
 
 ERRORS=
@@ -665,19 +708,4 @@ fi
 
 echo
 echo -e '\e[1;32mAntiZapret VPN + full VPN installed successfully!\e[0m'
-
-echo
-echo -e '\e[1;32mInstalling AmneziaWG 2.0 plugin...\e[0m'
-if curl -fsSL --connect-timeout 15 --max-time 120 'https://raw.githubusercontent.com/shax0491/AntiZapret-Amnezia-2/main/setup-amneziawg2.sh' -o /tmp/setup-amneziawg2.sh; then
-	if bash /tmp/setup-amneziawg2.sh; then
-		echo -e '\e[1;32mAmneziaWG 2.0 plugin installed successfully!\e[0m'
-	else
-		echo -e '\e[1;31mAmneziaWG 2.0 plugin installation failed!\e[0m Run it manually: bash /tmp/setup-amneziawg2.sh'
-	fi
-	rm -f /tmp/setup-amneziawg2.sh
-else
-	echo -e '\e[1;31mFailed to download AmneziaWG 2.0 plugin script!\e[0m Run it manually after reboot:'
-	echo "curl -fsSL 'https://raw.githubusercontent.com/shax0491/AntiZapret-Amnezia-2/main/setup-amneziawg2.sh' | bash"
-fi
-
 reboot
