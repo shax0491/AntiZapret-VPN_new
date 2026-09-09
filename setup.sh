@@ -280,13 +280,11 @@ echo
 # --- Proton VPN: получение и разбор WireGuard-конфигов взамен авторегистрации WARP ---
 PROTON_ANTIZAPRET_PRIVATE_KEY=
 PROTON_ANTIZAPRET_PUBLIC_KEY=
-PROTON_ANTIZAPRET_PRESHARED_KEY=
 PROTON_ANTIZAPRET_ADDRESS=
 PROTON_ANTIZAPRET_ENDPOINT_HOST=
 PROTON_ANTIZAPRET_ENDPOINT_PORT=
 PROTON_VPN_PRIVATE_KEY=
 PROTON_VPN_PUBLIC_KEY=
-PROTON_VPN_PRESHARED_KEY=
 PROTON_VPN_ADDRESS=
 PROTON_VPN_ENDPOINT_HOST=
 PROTON_VPN_ENDPOINT_PORT=
@@ -294,11 +292,10 @@ PROTON_VPN_ENDPOINT_PORT=
 parse_proton_wg_conf() {
 	# $1 = сырой текст wg-конфига, $2 = префикс переменных (PROTON_ANTIZAPRET / PROTON_VPN)
 	local raw="$1" prefix="$2"
-	local pk pub psk addr ep host port
+	local pk pub addr ep host port
 
 	pk="$(grep -m1 -iE '^[[:space:]]*PrivateKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
 	pub="$(grep -m1 -iE '^[[:space:]]*PublicKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
-	psk="$(grep -m1 -iE '^[[:space:]]*PresharedKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
 	addr="$(grep -m1 -iE '^[[:space:]]*Address[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]' | cut -d ',' -f1 | cut -d '/' -f1)"
 	ep="$(grep -m1 -iE '^[[:space:]]*Endpoint[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
 	host="${ep%%:*}"
@@ -311,7 +308,6 @@ parse_proton_wg_conf() {
 
 	printf -v "${prefix}_PRIVATE_KEY" '%s' "$pk"
 	printf -v "${prefix}_PUBLIC_KEY" '%s' "$pub"
-	printf -v "${prefix}_PRESHARED_KEY" '%s' "$psk"
 	printf -v "${prefix}_ADDRESS" '%s' "$addr"
 	printf -v "${prefix}_ENDPOINT_HOST" '%s' "$host"
 	printf -v "${prefix}_ENDPOINT_PORT" '%s' "$port"
@@ -498,13 +494,11 @@ VPN_WARP_ENDPOINT=
 VPN_WARP_ADDRESS=
 PROTON_ANTIZAPRET_PRIVATE_KEY=$PROTON_ANTIZAPRET_PRIVATE_KEY
 PROTON_ANTIZAPRET_PUBLIC_KEY=$PROTON_ANTIZAPRET_PUBLIC_KEY
-PROTON_ANTIZAPRET_PRESHARED_KEY=$PROTON_ANTIZAPRET_PRESHARED_KEY
 PROTON_ANTIZAPRET_ADDRESS=$PROTON_ANTIZAPRET_ADDRESS
 PROTON_ANTIZAPRET_ENDPOINT_HOST=$PROTON_ANTIZAPRET_ENDPOINT_HOST
 PROTON_ANTIZAPRET_ENDPOINT_PORT=$PROTON_ANTIZAPRET_ENDPOINT_PORT
 PROTON_VPN_PRIVATE_KEY=$PROTON_VPN_PRIVATE_KEY
 PROTON_VPN_PUBLIC_KEY=$PROTON_VPN_PUBLIC_KEY
-PROTON_VPN_PRESHARED_KEY=$PROTON_VPN_PRESHARED_KEY
 PROTON_VPN_ADDRESS=$PROTON_VPN_ADDRESS
 PROTON_VPN_ENDPOINT_HOST=$PROTON_VPN_ENDPOINT_HOST
 PROTON_VPN_ENDPOINT_PORT=$PROTON_VPN_ENDPOINT_PORT
@@ -671,4 +665,19 @@ fi
 
 echo
 echo -e '\e[1;32mAntiZapret VPN + full VPN installed successfully!\e[0m'
+
+echo
+echo -e '\e[1;32mInstalling AmneziaWG 2.0 plugin...\e[0m'
+if curl -fsSL --connect-timeout 15 --max-time 120 'https://raw.githubusercontent.com/shax0491/AntiZapret-Amnezia-2/main/setup-amneziawg2.sh' -o /tmp/setup-amneziawg2.sh; then
+	if bash /tmp/setup-amneziawg2.sh; then
+		echo -e '\e[1;32mAmneziaWG 2.0 plugin installed successfully!\e[0m'
+	else
+		echo -e '\e[1;31mAmneziaWG 2.0 plugin installation failed!\e[0m Run it manually: bash /tmp/setup-amneziawg2.sh'
+	fi
+	rm -f /tmp/setup-amneziawg2.sh
+else
+	echo -e '\e[1;31mFailed to download AmneziaWG 2.0 plugin script!\e[0m Run it manually after reboot:'
+	echo "curl -fsSL 'https://raw.githubusercontent.com/shax0491/AntiZapret-Amnezia-2/main/setup-amneziawg2.sh' | bash"
+fi
+
 reboot

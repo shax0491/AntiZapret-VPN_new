@@ -58,9 +58,6 @@ if [[ "$ANTIZAPRET_WARP" == '2' || "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WAR
 
 			[[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]] && ANTIZAPRET_FWMARK="fwmark 0x2 "
 
-			PSK_LINE=""
-			[[ -n "$PROTON_ANTIZAPRET_PRESHARED_KEY" ]] && PSK_LINE="PresharedKey = $PROTON_ANTIZAPRET_PRESHARED_KEY"
-
 			echo "[Interface]
 PrivateKey = $PROTON_ANTIZAPRET_PRIVATE_KEY
 Address = $ANTIZAPRET_WARP_ADDRESS
@@ -73,7 +70,6 @@ PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 prior
 
 [Peer]
 PublicKey = $PROTON_ANTIZAPRET_PUBLIC_KEY
-$PSK_LINE
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
@@ -157,9 +153,6 @@ if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' ]]; then
 
 			[[ "$VPN_WARP" == '3' ]] && VPN_FWMARK="fwmark 0x2 "
 
-			PSK_LINE=""
-			[[ -n "$PROTON_VPN_PRESHARED_KEY" ]] && PSK_LINE="PresharedKey = $PROTON_VPN_PRESHARED_KEY"
-
 			echo "[Interface]
 PrivateKey = $PROTON_VPN_PRIVATE_KEY
 Address = $VPN_WARP_ADDRESS
@@ -172,7 +165,6 @@ PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 100
 
 [Peer]
 PublicKey = $PROTON_VPN_PUBLIC_KEY
-$PSK_LINE
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
