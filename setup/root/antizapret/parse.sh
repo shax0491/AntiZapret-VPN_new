@@ -22,6 +22,21 @@ rm -rf temp result
 mkdir -p temp result
 source setup
 
+purge_changed_names() {
+	local old="$1" new="$2" sock="$3" label="$4"
+	[[ -f "$old" ]] || touch "$old"
+	[[ -f "$new" ]] || return 0
+	local changed count=0
+	changed="$(diff "$old" "$new" 2>/dev/null | grep -E '^[<>]' | sed -E 's/^[<>] //; s/^\*\.//; s/[[:space:]]+CNAME.*//' | grep -vE '^\$TTL|^@|^;' | sort -u)"
+	[[ -z "$changed" ]] && return 0
+	while read -r name; do
+		[[ -z "$name" ]] && continue
+		echo "cache.clear('$name', true)" | socat - "$sock" &>/dev/null
+		count=$((count + 1))
+	done <<< "$changed"
+	echo "$label: targeted cache purge for $count changed domain(s)"
+}
+
 ###
 mv -f config/rpz.txt config/deny.txt 2>/dev/null || true
 mv -f config/rpz2.txt config/deny2.txt 2>/dev/null || true
@@ -204,12 +219,14 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	cp temp/deny2.rpz result/deny2.rpz
 
 	if [[ -f result/deny.rpz ]] && ! diff -q result/deny.rpz /etc/knot-resolver/deny.rpz; then
+		purge_changed_names /etc/knot-resolver/deny.rpz result/deny.rpz /run/knot-resolver/control/1 'deny.rpz'
 		cp -f result/deny.rpz /etc/knot-resolver/deny.rpz.tmp
 		mv -f /etc/knot-resolver/deny.rpz.tmp /etc/knot-resolver/deny.rpz
 		sleep 5
 	fi
 
 	if [[ -f result/deny2.rpz ]] && ! diff -q result/deny2.rpz /etc/knot-resolver/deny2.rpz; then
+		purge_changed_names /etc/knot-resolver/deny2.rpz result/deny2.rpz /run/knot-resolver/control/2 'deny2.rpz'
 		cp -f result/deny2.rpz /etc/knot-resolver/deny2.rpz.tmp
 		mv -f /etc/knot-resolver/deny2.rpz.tmp /etc/knot-resolver/deny2.rpz
 		sleep 5
@@ -240,14 +257,6 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sed -E '/\..*\./ s/^([0-9]*www[0-9]*|hd[0-9]*|[0-9]+)\.//' temp/include-hosts3.txt result/exclude-hosts.txt > temp/include-hosts4.txt
 	fi
 
-	# --- ОПТИМИЗИРОВАНО: схлопывание избыточных поддоменов ---
-	# После rev (разворот строки) родительский домен всегда лексикографически
-	# оказывается непосредственно перед своими поддоменами, т.к. является
-	# префиксом их развёрнутой формы. Один линейный проход awk убирает всё,
-	# что начинается с "родитель.". Это функционально то же самое, что было
-	# в оригинале (составная сортировка по 20 полям -k1,1..-k20,20), но проще
-	# и заметно быстрее на списках от 100k+ строк, т.к. не гоняет 20 ключей
-	# сортировки на каждой строке.
 	rev temp/include-hosts4.txt | LC_ALL=C sort | awk '
 	BEGIN { last = "" }
 	{
@@ -276,6 +285,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	cp temp/proxy.rpz result/proxy.rpz
 
 	if [[ -f result/proxy.rpz ]] && ! diff -q result/proxy.rpz /etc/knot-resolver/proxy.rpz; then
+		purge_changed_names /etc/knot-resolver/proxy.rpz result/proxy.rpz /run/knot-resolver/control/1 'proxy.rpz'
 		cp -f result/proxy.rpz /etc/knot-resolver/proxy.rpz.tmp
 		mv -f /etc/knot-resolver/proxy.rpz.tmp /etc/knot-resolver/proxy.rpz
 		sleep 5
@@ -292,6 +302,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	cp temp/warp.rpz result/warp.rpz
 
 	if [[ -f result/warp.rpz ]] && ! diff -q result/warp.rpz /etc/knot-resolver/warp.rpz; then
+		purge_changed_names /etc/knot-resolver/warp.rpz result/warp.rpz /run/knot-resolver/control/1 'warp.rpz'
 		cp -f result/warp.rpz /etc/knot-resolver/warp.rpz.tmp
 		mv -f /etc/knot-resolver/warp.rpz.tmp /etc/knot-resolver/warp.rpz
 		sleep 5
