@@ -198,6 +198,38 @@ download $DOALL_PATH $DOALL_LINK y || true
 
 source setup
 
+# --- WARP: подбор рабочего не-RU эндпоинта (warpscout) ---
+# Сканирование занимает несколько минут - гонять его на каждой перезагрузке (из up.sh)
+# нельзя. Поэтому результат кэшируется в файл вне /root/antizapret (переживает
+# переустановку) и обновляется здесь, в ночном update.sh, не чаще раза в WARPSCOUT_MAX_AGE_DAYS
+# дней. up.sh только читает готовый файл - сам никогда не сканирует.
+WARPSCOUT_ACCOUNT=/etc/wireguard/warpscout-account.json
+WARPSCOUT_ENDPOINT_CACHE=/etc/wireguard/warpscout-endpoint
+WARPSCOUT_MAX_AGE_DAYS=6
+
+if [[ "$WARP_PROVIDER" == 'cloudflare' ]] && { [[ "$ANTIZAPRET_WARP" != '1' ]] || [[ "$VPN_WARP" != '1' ]]; } && command -v warpscout &>/dev/null; then
+	STALE=y
+	if [[ -s "$WARPSCOUT_ENDPOINT_CACHE" ]]; then
+		AGE_DAYS=$(( ( $(date +%s) - $(stat -c %Y "$WARPSCOUT_ENDPOINT_CACHE" 2>/dev/null || echo 0) ) / 86400 ))
+		(( AGE_DAYS < WARPSCOUT_MAX_AGE_DAYS )) && STALE=n
+	fi
+	if [[ "$STALE" == 'y' ]]; then
+		log "warpscout: refreshing best WARP endpoint (excluding RU/DME node)..."
+		if [[ ! -s "$WARPSCOUT_ACCOUNT" ]]; then
+			timeout 30 warpscout register -a "$WARPSCOUT_ACCOUNT" &>>"$LOG_FILE" || log "warpscout: registration failed, will retry next run"
+		fi
+		if [[ -s "$WARPSCOUT_ACCOUNT" ]]; then
+			BEST="$(timeout 200 warpscout scan -a "$WARPSCOUT_ACCOUNT" -p wg -exclude-node DME -best -t 3 -jt 20 -no-report 2>>"$LOG_FILE")"
+			if [[ "$BEST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+				echo "$BEST" > "$WARPSCOUT_ENDPOINT_CACHE"
+				log "warpscout: best endpoint is $BEST"
+			else
+				log "warpscout: scan found nothing usable, keeping previous cached endpoint (if any)"
+			fi
+		fi
+	fi
+fi
+
 if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" == 'noclean' ]]; then
 	download $DOMAIN_PATH $DOMAIN_LINK n || true
 	download $DOMAIN2_PATH $DOMAIN2_LINK n || true

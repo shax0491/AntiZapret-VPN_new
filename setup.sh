@@ -478,6 +478,27 @@ make -C /tmp/amneziawg-tools/src install PREFIX=/usr/local
 
 rm -rf /tmp/amneziawg-go /tmp/amneziawg-tools
 
+# warpscout - подбор рабочего не-RU эндпоинта Cloudflare WARP (см. up.sh/update.sh).
+# Нужен только при авторегистрации через Cloudflare - у Proton своя явная точка подключения.
+# Ставится готовым бинарником из GitHub Releases (без выполнения стороннего install.sh).
+if [[ "$WARP_PROVIDER" == 'cloudflare' ]]; then
+	WARPSCOUT_TAG="$(curl -sf --connect-timeout 15 'https://api.github.com/repos/vernette/warpscout/releases/latest' | grep -oP '"tag_name":\s*"\K[^"]+')"
+	[[ "$ARCH" == 'arm64' ]] && WARPSCOUT_ARCH='arm64' || WARPSCOUT_ARCH='amd64'
+	if [[ -n "$WARPSCOUT_TAG" ]]; then
+		rm -rf /tmp/warpscout
+		mkdir -p /tmp/warpscout
+		if curl -fsSL --connect-timeout 15 "https://github.com/vernette/warpscout/releases/download/${WARPSCOUT_TAG}/warpscout_${WARPSCOUT_TAG#v}_linux_${WARPSCOUT_ARCH}.tar.gz" -o /tmp/warpscout/warpscout.tar.gz; then
+			tar -xzf /tmp/warpscout/warpscout.tar.gz -C /tmp/warpscout
+			install -m 755 /tmp/warpscout/warpscout /usr/local/bin/warpscout
+		else
+			echo 'Warning: could not download warpscout, WARP endpoint will stay as given by Cloudflare registration'
+		fi
+		rm -rf /tmp/warpscout
+	else
+		echo 'Warning: could not resolve warpscout release, WARP endpoint will stay as given by Cloudflare registration'
+	fi
+fi
+
 rm -rf /tmp/dnslib
 git clone https://github.com/paulc/dnslib.git /tmp/dnslib
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --force-reinstall --user /tmp/dnslib

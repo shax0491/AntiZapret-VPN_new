@@ -97,6 +97,19 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 			ANTIZAPRET_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
 			ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
 			ANTIZAPRET_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
+
+			# Эндпоинт, который сама Cloudflare выдаёт при регистрации, часто ведёт на
+			# московский узел (DME) с российской гео-локацией и DPI-фильтрацией с апреля
+			# 2026. Если warpscout (update.sh, раз в несколько дней) нашёл рабочий не-RU
+			# эндпоинт - используем его вместо предложенного Cloudflare. Публичный ключ
+			# пира общий для всех эндпоинтов WARP, поэтому подмена совместима с любым
+			# зарегистрированным ключом.
+			if [[ -s /etc/wireguard/warpscout-endpoint ]]; then
+				WARPSCOUT_EP="$(cat /etc/wireguard/warpscout-endpoint)"
+				if [[ "$WARPSCOUT_EP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+					ANTIZAPRET_WARP_ENDPOINT="$WARPSCOUT_EP"
+				fi
+			fi
 		fi
 		ANTIZAPRET_WARP_IP="${ANTIZAPRET_WARP_ADDRESS%%/*}"
 
@@ -192,6 +205,15 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 			VPN_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
 			VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
 			VPN_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
+
+			# См. пояснение у ANTIZAPRET_WARP выше - используем найденный warpscout'ом
+			# не-RU эндпоинт вместо предложенного Cloudflare, если он есть в кэше.
+			if [[ -s /etc/wireguard/warpscout-endpoint ]]; then
+				WARPSCOUT_EP="$(cat /etc/wireguard/warpscout-endpoint)"
+				if [[ "$WARPSCOUT_EP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+					VPN_WARP_ENDPOINT="$WARPSCOUT_EP"
+				fi
+			fi
 		fi
 		VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
 
@@ -243,6 +265,12 @@ iptables -w -I FORWARD 1 -m conntrack --ctstate INVALID -j DROP
 ip6tables -w -I FORWARD 1 -m conntrack --ctstate INVALID -j DROP
 iptables -w -I OUTPUT 1 -m conntrack --ctstate INVALID -j DROP
 ip6tables -w -I OUTPUT 1 -m conntrack --ctstate INVALID -j DROP
+# Telegram: подсеть 91.105.192.0/23 у части провайдеров не отвечает по IPv4. Приложение при
+# этом не переключается на другой рабочий IP Telegram, а уходит пробовать IPv6 и виснет
+# насмерть до перезапуска. REJECT вместо тихого DROP даёт клиенту мгновенный отказ
+# (TCP RST/ICMP unreachable), и он сам переключается на рабочую подсеть без зависания.
+iptables -w -I FORWARD 2 -d 91.105.192.0/23 -j REJECT --reject-with icmp-port-unreachable
+iptables -w -I FORWARD 2 -d 91.105.192.0/23 -p tcp -j REJECT --reject-with tcp-reset
 if [[ "$TORRENT_GUARD" == 'y' ]]; then
 	ipset create antizapret-torrent hash:ip timeout 60 -exist
 	iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -p tcp -m string --string 'GET ' --algo kmp --to 100 -m string --string 'info_hash=' --algo bm -m string --string 'peer_id=' --algo bm -m string --string 'port=' --algo bm -j SET --add-set antizapret-torrent src --exist
