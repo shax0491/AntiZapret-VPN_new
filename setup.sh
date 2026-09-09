@@ -141,7 +141,7 @@ until [[ "$VPN_WARP" =~ ^[1-2]$ ]]; do
 done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mAntiZapret VPN\e[0m (antizapret-*):'
-echo '    1) MSK-IX+NSDI      - DNS resolvers optimized for users located in Russia, recommended by default'
+echo '    1) MSK-IX+NSDI+SkyDNS - DNS resolvers optimized for users located in Russia, recommended by default'
 echo '       +BI.ZONE+TransTeleCom'
 echo '       +Cloudflare+Quad9'
 echo '       +ControlD+UltraDNS'
@@ -153,14 +153,12 @@ echo '    5) AdGuard *        - Use for blocking ads, trackers, malware and phis
 echo '    6) Comss **         - More details: https://comss.ru/disqus/page.php?id=7315'
 echo '    7) XBox **          - More details: https://xbox-dns.ru'
 echo '    8) GeoHide **       - More details: https://geohide.ru'
-echo '    9) SkyDNS+Quad9 *** - Commercial SkyDNS as primary, Quad9 as automatic fallback'
 echo
 echo '  * - DNS resolvers support EDNS Client Subnet'
 echo ' ** - Enable additional proxying and hide this server IP on some internet resources'
 echo '      Use only if this server is geolocated in Russia or problems accessing some internet resources'
-echo '*** - Requires binding this server external IP in your SkyDNS account panel (skydns.ru)'
-until [[ "$ANTIZAPRET_DNS" =~ ^[1-9]$ ]]; do
-	read -rp 'DNS choice [1-9]: ' -e -i 1 ANTIZAPRET_DNS
+until [[ "$ANTIZAPRET_DNS" =~ ^[1-8]$ ]]; do
+	read -rp 'DNS choice [1-8]: ' -e -i 1 ANTIZAPRET_DNS
 done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mfull VPN\e[0m (vpn-*):'
