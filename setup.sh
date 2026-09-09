@@ -150,7 +150,7 @@ done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mAntiZapret VPN\e[0m (antizapret-*):'
 echo '    1) MSK-IX+NSDI      - DNS resolvers optimized for users located in Russia, recommended by default'
-echo '       +BI.ZONE+TransTeleCom'
+echo '       +TransTeleCom'
 echo '       +Cloudflare+Quad9'
 echo '       +ControlD+UltraDNS'
 echo '    2) SkyDNS+Cloudflare+Quad9 - Use if default choice fails to resolve domains'
