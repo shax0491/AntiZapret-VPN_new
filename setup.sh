@@ -83,6 +83,14 @@ echo 'OpenVPN + WireGuard + AmneziaWG'
 echo 'More details: https://github.com/shax0491/AntiZapret-VPN'
 echo
 
+until [[ "$RUN_SERVER_DIAGNOSTICS" =~ (y|n) ]]; do
+	read -rp 'Запустить полную диагностику сервера перед установкой? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
+done
+if [[ "$RUN_SERVER_DIAGNOSTICS" == 'y' ]]; then
+	bash <(curl -fsSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/setup/root/antizapret/check_server.sh) || true
+fi
+echo
+
 MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
 if (( MTU < 1500 )); then
 	echo "Warning! Low MTU on $DEFAULT_INTERFACE: $MTU"
