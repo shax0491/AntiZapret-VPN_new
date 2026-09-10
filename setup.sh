@@ -86,9 +86,40 @@ echo
 MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
 if (( MTU < 1500 )); then
 	echo "Warning! Low MTU on $DEFAULT_INTERFACE: $MTU"
-	echo "Change MTU in OpenVPN and WireGuard configs from 1420 to $((MTU-80)) on this server after installation"
-	echo
 fi
+
+# Бинарный поиск максимального размера IP-пакета к 1.1.1.1 без фрагментации (ping -M do,
+# DF-бит). Не полагаемся на ядерный PMTU discovery через ICMP "Fragmentation needed" -
+# эти ICMP часто режутся провайдерами/ТСПУ по пути, из-за чего PMTUD "чернеет" (blackhole):
+# тяжёлые пакеты просто молча теряются вместо приходящей фрагментации, и сайты подвисают.
+detect_optimal_mtu() {
+	local iface_mtu="$1" target='1.1.1.1'
+	local lo=576 hi="$iface_mtu" mid best=576
+
+	if ! ping -c 1 -W 2 "$target" &>/dev/null; then
+		echo "$iface_mtu"
+		return 1
+	fi
+
+	while (( lo <= hi )); do
+		mid=$(( (lo + hi) / 2 ))
+		if ping -c 1 -W 1 -M do -s $((mid - 28)) "$target" &>/dev/null; then
+			best=$mid
+			lo=$((mid + 1))
+		else
+			hi=$((mid - 1))
+		fi
+	done
+	echo "$best"
+}
+
+echo 'Detecting optimal MTU (ping -M do probing to 1.1.1.1)...'
+DETECTED_PMTU="$(detect_optimal_mtu "$MTU")"
+VPN_MTU=$((DETECTED_PMTU - 80))
+(( VPN_MTU < 576 )) && VPN_MTU=576
+echo "Detected path MTU to 1.1.1.1: $DETECTED_PMTU, using MTU=$VPN_MTU for tunnels (minus ~80 bytes tunnel overhead)"
+echo "Change MTU in OpenVPN and WireGuard configs from 1420 to $VPN_MTU on this server after installation if needed"
+echo
 
 until [[ "$OPENVPN_UDP_ENABLE" =~ (y|n) ]]; do
 	read -rp 'Enable OpenVPN UDP? [y/n]: ' -e -i y OPENVPN_UDP_ENABLE
@@ -148,6 +179,85 @@ until [[ "$VPN_WARP" =~ ^[1-2]$ ]]; do
 	read -rp 'WARP choice [1-2]: ' -e -i 2 VPN_WARP
 done
 echo
+
+# --- Proton VPN: получение и разбор WireGuard-конфигов взамен авторегистрации WARP ---
+# Запрашивается сразу после выбора провайдера и охвата WARP (ANTIZAPRET_WARP/VPN_WARP),
+# а не в конце установки, чтобы пользователь не искал глазами этот шаг среди других вопросов.
+PROTON_ANTIZAPRET_PRIVATE_KEY=
+PROTON_ANTIZAPRET_PUBLIC_KEY=
+PROTON_ANTIZAPRET_ADDRESS=
+PROTON_ANTIZAPRET_ENDPOINT_HOST=
+PROTON_ANTIZAPRET_ENDPOINT_PORT=
+PROTON_VPN_PRIVATE_KEY=
+PROTON_VPN_PUBLIC_KEY=
+PROTON_VPN_ADDRESS=
+PROTON_VPN_ENDPOINT_HOST=
+PROTON_VPN_ENDPOINT_PORT=
+
+parse_proton_wg_conf() {
+	# $1 = сырой текст wg-конфига, $2 = префикс переменных (PROTON_ANTIZAPRET / PROTON_VPN)
+	local raw="$1" prefix="$2"
+	local pk pub addr ep host port
+
+	pk="$(grep -m1 -iE '^[[:space:]]*PrivateKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
+	pub="$(grep -m1 -iE '^[[:space:]]*PublicKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
+	addr="$(grep -m1 -iE '^[[:space:]]*Address[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]' | cut -d ',' -f1 | cut -d '/' -f1)"
+	ep="$(grep -m1 -iE '^[[:space:]]*Endpoint[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
+	host="${ep%%:*}"
+	port="${ep##*:}"
+
+	if [[ -z "$pk" || -z "$pub" || -z "$ep" || -z "$addr" ]] || ! [[ "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+		echo 'Invalid WireGuard config pasted! Expected PrivateKey/PublicKey/Endpoint/Address fields.'
+		return 1
+	fi
+
+	printf -v "${prefix}_PRIVATE_KEY" '%s' "$pk"
+	printf -v "${prefix}_PUBLIC_KEY" '%s' "$pub"
+	printf -v "${prefix}_ADDRESS" '%s' "$addr"
+	printf -v "${prefix}_ENDPOINT_HOST" '%s' "$host"
+	printf -v "${prefix}_ENDPOINT_PORT" '%s' "$port"
+	return 0
+}
+
+# Построчное чтение через read -r без ожидания Ctrl+D: пользователь вставляет конфиг
+# и один раз нажимает Enter (пустая строка завершает ввод), вместо read -rp ... | cat - EOF.
+read_proton_config() {
+	local line
+	local -a lines=()
+	while IFS= read -r line; do
+		[[ -z "$line" ]] && break
+		lines+=("$line")
+	done
+	printf '%s\n' "${lines[@]}"
+}
+
+if [[ "$WARP_PROVIDER" == 'proton' ]]; then
+	echo 'Proton VPN has no simple scriptable login API (SRP auth). Get a WireGuard config from'
+	echo 'your Proton account (Downloads -> WireGuard configuration) or via the official protonvpn-cli,'
+	echo 'then paste its full content below.'
+	echo
+
+	if [[ "$ANTIZAPRET_WARP" != '1' ]]; then
+		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Enter on an empty line to finish:'
+		RAW="$(read_proton_config)"
+		until parse_proton_wg_conf "$RAW" PROTON_ANTIZAPRET; do
+			echo 'Paste again, then press Enter on an empty line to finish:'
+			RAW="$(read_proton_config)"
+		done
+		echo
+	fi
+
+	if [[ "$VPN_WARP" != '1' ]]; then
+		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Enter on an empty line to finish:'
+		RAW="$(read_proton_config)"
+		until parse_proton_wg_conf "$RAW" PROTON_VPN; do
+			echo 'Paste again, then press Enter on an empty line to finish:'
+			RAW="$(read_proton_config)"
+		done
+		echo
+	fi
+fi
+
 echo -e 'Choose DNS resolvers for \e[1;32mAntiZapret VPN\e[0m (antizapret-*):'
 echo '    1) MSK-IX+NSDI      - DNS resolvers optimized for users located in Russia, recommended by default'
 echo '       +TransTeleCom'
@@ -284,70 +394,6 @@ until [[ "$WHATSAPP_INCLUDE" =~ (y|n) ]]; do
 	read -rp $'Include WhatsApp IPs in \001\e[1;32m\002AntiZapret VPN\001\e[0m\002? [y/n]: ' -e -i y WHATSAPP_INCLUDE
 done
 echo
-
-# --- Proton VPN: получение и разбор WireGuard-конфигов взамен авторегистрации WARP ---
-PROTON_ANTIZAPRET_PRIVATE_KEY=
-PROTON_ANTIZAPRET_PUBLIC_KEY=
-PROTON_ANTIZAPRET_ADDRESS=
-PROTON_ANTIZAPRET_ENDPOINT_HOST=
-PROTON_ANTIZAPRET_ENDPOINT_PORT=
-PROTON_VPN_PRIVATE_KEY=
-PROTON_VPN_PUBLIC_KEY=
-PROTON_VPN_ADDRESS=
-PROTON_VPN_ENDPOINT_HOST=
-PROTON_VPN_ENDPOINT_PORT=
-
-parse_proton_wg_conf() {
-	# $1 = сырой текст wg-конфига, $2 = префикс переменных (PROTON_ANTIZAPRET / PROTON_VPN)
-	local raw="$1" prefix="$2"
-	local pk pub addr ep host port
-
-	pk="$(grep -m1 -iE '^[[:space:]]*PrivateKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
-	pub="$(grep -m1 -iE '^[[:space:]]*PublicKey[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
-	addr="$(grep -m1 -iE '^[[:space:]]*Address[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]' | cut -d ',' -f1 | cut -d '/' -f1)"
-	ep="$(grep -m1 -iE '^[[:space:]]*Endpoint[[:space:]]*=' <<<"$raw" | cut -d '=' -f2- | tr -d '[:space:]')"
-	host="${ep%%:*}"
-	port="${ep##*:}"
-
-	if [[ -z "$pk" || -z "$pub" || -z "$ep" || -z "$addr" ]] || ! [[ "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
-		echo 'Invalid WireGuard config pasted! Expected PrivateKey/PublicKey/Endpoint/Address fields.'
-		return 1
-	fi
-
-	printf -v "${prefix}_PRIVATE_KEY" '%s' "$pk"
-	printf -v "${prefix}_PUBLIC_KEY" '%s' "$pub"
-	printf -v "${prefix}_ADDRESS" '%s' "$addr"
-	printf -v "${prefix}_ENDPOINT_HOST" '%s' "$host"
-	printf -v "${prefix}_ENDPOINT_PORT" '%s' "$port"
-	return 0
-}
-
-if [[ "$WARP_PROVIDER" == 'proton' ]]; then
-	echo 'Proton VPN has no simple scriptable login API (SRP auth). Get a WireGuard config from'
-	echo 'your Proton account (Downloads -> WireGuard configuration) or via the official protonvpn-cli,'
-	echo 'then paste its full content below.'
-	echo
-
-	if [[ "$ANTIZAPRET_WARP" != '1' ]]; then
-		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Enter and Ctrl+D:'
-		RAW="$(cat -)"
-		until parse_proton_wg_conf "$RAW" PROTON_ANTIZAPRET; do
-			echo 'Paste again, then press Enter and Ctrl+D:'
-			RAW="$(cat -)"
-		done
-		echo
-	fi
-
-	if [[ "$VPN_WARP" != '1' ]]; then
-		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Enter and Ctrl+D:'
-		RAW="$(cat -)"
-		until parse_proton_wg_conf "$RAW" PROTON_VPN; do
-			echo 'Paste again, then press Enter and Ctrl+D:'
-			RAW="$(cat -)"
-		done
-		echo
-	fi
-fi
 
 echo 'Installation, please wait...'
 
@@ -578,7 +624,7 @@ GOOGLE_INCLUDE=$GOOGLE_INCLUDE
 AKAMAI_INCLUDE=$AKAMAI_INCLUDE
 CLEAR_HOSTS=y
 TXQUEUELEN=10000
-MTU=1420
+MTU=$VPN_MTU
 SEGMENTATION_OFFLOAD=off
 DEFAULT_INTERFACE=
 DEFAULT_IP=
