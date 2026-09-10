@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Cloudflare WARP endpoint via warpscout
+After=antizapret.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/antizapret
+ExecStart=/root/antizapret/warpscout-refresh.sh
+TimeoutSec=5m

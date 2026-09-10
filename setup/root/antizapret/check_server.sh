@@ -52,7 +52,7 @@ run_check 'Бенчмарк сервера (bench.sh)' \
 	bash -c 'wget -qO- bench.sh | bash'
 
 run_check 'CPU benchmark (sysbench)' \
-	bash -c 'command -v sysbench &>/dev/null || apt-get install -y sysbench; sysbench cpu run --threads=1'
+	bash -c 'command -v sysbench &>/dev/null || apt-get install -y sysbench; sysbench cpu run --threads=1 --time=10'
 
 echo
 echo 'Server diagnostics finished.'

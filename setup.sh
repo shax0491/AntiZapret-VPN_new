@@ -743,6 +743,13 @@ systemctl enable kresd@2
 systemctl enable antizapret
 systemctl enable antizapret-update.timer
 systemctl enable antizapret-update
+if [[ "$WARP_PROVIDER" == 'cloudflare' && ( "$ANTIZAPRET_WARP" != '1' || "$VPN_WARP" != '1' ) ]]; then
+	echo 'Installing warpscout (periodic WARP endpoint health check)...'
+	curl -fsSL https://raw.githubusercontent.com/vernette/warpscout/master/install.sh | sh || true
+	command -v warpscout &>/dev/null && warpscout register &>/dev/null || true
+	systemctl enable warpscout-refresh.timer
+	systemctl start warpscout-refresh.timer
+fi
 if [[ "$OPENVPN_UDP_ENABLE" == 'y' ]]; then
 	systemctl enable openvpn-server@antizapret-udp
 	systemctl enable openvpn-server@vpn-udp
