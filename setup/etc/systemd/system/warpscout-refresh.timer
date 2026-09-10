@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Cloudflare WARP endpoint health check (warpscout)
+
+[Timer]
+OnBootSec=15m
+OnUnitActiveSec=6h
+RandomizedDelaySec=20m
+
+[Install]
+WantedBy=timers.target

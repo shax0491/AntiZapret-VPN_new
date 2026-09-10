@@ -179,12 +179,16 @@ function download {
 	fi
 
 	mv -f "$tmp_path" "$path"
+	local final_path="$path"
 	if [[ "$path" == *.sh ]]; then
 		chmod +x "$path"
 	elif [[ "$path" == *.gz ]]; then
+		# gunzip удаляет исходный .gz после распаковки - дальше логируем размер
+		# уже под именем без .gz, иначе wc ниже упадёт на несуществующий файл
 		gunzip -f "$path" || > "${path%.gz}"
+		final_path="${path%.gz}"
 	fi
-	log "  OK: $path ($(wc -c < "$path") bytes)"
+	log "  OK: $final_path ($(wc -c < "$final_path") bytes)"
 	return 0
 }
 
@@ -193,7 +197,10 @@ function download {
 # отдельный path, поэтому гонок нет. Критичные self-update загрузки (update.sh,
 # parse.sh, doall.sh) остаются последовательными выше/ниже по коду: их `exit 2`
 # должен реально прерывать update.sh, а не просто завершать фоновую задачу.
-MAX_PARALLEL_DOWNLOADS=6
+# Лимит намеренно консервативный (2) - сервер может быть дешёвой VPS с 1 vCPU/1GB RAM,
+# где даже curl+gunzip+sort нескольких крупных списков (adblock/oisd) одновременно
+# заметно нагружают память и CPU.
+MAX_PARALLEL_DOWNLOADS=2
 BG_PIDS=()
 
 queue_download() {
