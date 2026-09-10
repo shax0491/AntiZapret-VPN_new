@@ -237,6 +237,15 @@ if [[ "$WARP_PROVIDER" == 'proton' ]]; then
 	echo 'then paste its full content below.'
 	echo
 
+	if [[ "$ANTIZAPRET_WARP" != '1' && "$VPN_WARP" != '1' ]]; then
+		echo 'Warning! AntiZapret VPN and full VPN egress will run as two simultaneous WireGuard'
+		echo 'tunnels to Proton. You must paste two DIFFERENT WireGuard configs (from two different'
+		echo 'Proton devices/keys) below - reusing the same key for both breaks the connection,'
+		echo 'as Proton allows only one active session per key and the tunnels will keep dropping'
+		echo 'each other.'
+		echo
+	fi
+
 	if [[ "$ANTIZAPRET_WARP" != '1' ]]; then
 		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Enter on an empty line to finish:'
 		RAW="$(read_proton_config)"
@@ -254,6 +263,15 @@ if [[ "$WARP_PROVIDER" == 'proton' ]]; then
 			echo 'Paste again, then press Enter on an empty line to finish:'
 			RAW="$(read_proton_config)"
 		done
+		if [[ "$ANTIZAPRET_WARP" != '1' && "$PROTON_VPN_PRIVATE_KEY" == "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; then
+			echo 'Error! This is the same key you already pasted for AntiZapret VPN egress.'
+			echo 'Paste a DIFFERENT Proton WireGuard config for full VPN egress, then press Enter on an empty line to finish:'
+			RAW="$(read_proton_config)"
+			until parse_proton_wg_conf "$RAW" PROTON_VPN && [[ "$PROTON_VPN_PRIVATE_KEY" != "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; do
+				echo 'Still the same key (or invalid config). Paste a DIFFERENT Proton config, then press Enter on an empty line to finish:'
+				RAW="$(read_proton_config)"
+			done
+		fi
 		echo
 	fi
 fi
@@ -649,6 +667,10 @@ rm -rf /root/antizapret
 cp -r /tmp/antizapret/setup/* /
 rm -rf /tmp/dnslib
 rm -rf /tmp/antizapret
+
+# Файл setup содержит приватные ключи (WireGuard/AmneziaWG/Proton) в открытом виде -
+# после chmod 644 {} + выше он мирового чтения, закрываем доступ только для root.
+chmod 600 /root/antizapret/setup
 
 if [[ "$ANTIZAPRET_DNS" != '1' ]]; then
 	sed -i "s/local dns1 = 1/local dns1 = $ANTIZAPRET_DNS/" /etc/knot-resolver/kresd.conf
