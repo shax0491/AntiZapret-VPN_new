@@ -14,7 +14,11 @@
 # Строки начинающиеся с # это комментарии и они не обрабатываются
 #
 
-
+# ИИ-сервисы (Gemini и связанные API Google)
+gemini.google.com
+ai.com
+googleapis.com
+google.com
 
 
 

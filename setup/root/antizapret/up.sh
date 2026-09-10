@@ -262,6 +262,10 @@ fi
 # (TCP RST/ICMP unreachable), и он сам переключается на рабочую подсеть без зависания.
 iptables -w -I FORWARD 2 -d 91.105.192.0/23 -j REJECT --reject-with icmp-port-unreachable
 iptables -w -I FORWARD 2 -d 91.105.192.0/23 -p tcp -j REJECT --reject-with tcp-reset
+# Единственный живой адрес Telegram в этой подсети - исключаем его из REJECT выше.
+# Вставляется последним (-I FORWARD 2), поэтому в цепочке проверяется раньше обоих
+# REJECT-правил и трафик к нему проходит как обычно.
+iptables -w -I FORWARD 2 -d 91.105.192.110 -j ACCEPT
 if [[ "$TORRENT_GUARD" == 'y' ]]; then
 	ipset create antizapret-torrent hash:ip timeout 60 -exist
 	iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -p tcp -m string --string 'GET ' --algo kmp --to 100 -m string --string 'info_hash=' --algo bm -m string --string 'peer_id=' --algo bm -m string --string 'port=' --algo bm -j SET --add-set antizapret-torrent src --exist
@@ -346,8 +350,13 @@ fi
 iptables -w -I INPUT 2 -i $DEFAULT_INTERFACE -m set --match-set antizapret-deny src -j DROP
 
 # mangle
-iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+# --clamp-mss-to-pmtu полагается на ядерный PMTU discovery через ICMP "Fragmentation needed",
+# а эти ICMP часто режутся по пути (провайдер/ТСПУ) - PMTUD "чернеет", и тяжёлые пакеты в
+# туннеле молча теряются вместо фрагментации. Вместо этого явно клэмпим MSS под MTU,
+# определённый в setup.sh пробингом (ping -M do к 1.1.1.1) минус оверхед туннеля.
+VPN_MSS=$(( ${MTU:-1420} - 40 ))
+iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
+iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 

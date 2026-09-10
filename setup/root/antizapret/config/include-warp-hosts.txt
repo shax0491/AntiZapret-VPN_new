@@ -13,3 +13,10 @@
 #
 # Строки начинающиеся с # это комментарии и они не обрабатываются
 #
+
+# ИИ-сервисы (Gemini и связанные API Google) - egress через WARP/Proton,
+# т.к. Gemini/Google AI гео-блокируют выход с российских IP
+gemini.google.com
+ai.com
+googleapis.com
+google.com
