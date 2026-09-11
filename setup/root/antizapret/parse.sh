@@ -269,9 +269,15 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' config/*include-warp-hosts.txt | sort -u > result/include-warp-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' config/*exclude-warp-hosts.txt | sort -u > result/exclude-warp-hosts.txt
 
+	# nice/ionice: обработка ~3.3М строк из download/*domain.txt через sed+idn
+	# даёт кратковременный (~4 сек), но заметный пик CPU на обоих ядрах разом
+	# (sed и idn грузят каждый своё ядро параллельно через пайп). На слабых VPS
+	# это может конкурировать с другими процессами за CPU/IO в момент старта
+	# antizapret.service - понижаем приоритет, чтобы не мешать остальной системе.
+	# Результат не меняется, меняется только скорость/приоритет выполнения.
 	[[ -n "$(compgen -G 'download/*domain.txt')" ]] && \
-	sed -n 's/^[[:punct:]]\+//; s/[[:punct:]]\+$//; /\./{s/.*/\L&/; /^[а-яa-z0-9.-]\+$/p}' download/*domain.txt \
-	| CHARSET=UTF-8 idn --no-tld >> temp/include-hosts.txt
+	nice -n 19 ionice -c3 sed -n 's/^[[:punct:]]\+//; s/[[:punct:]]\+$//; /\./{s/.*/\L&/; /^[а-яa-z0-9.-]\+$/p}' download/*domain.txt \
+	| CHARSET=UTF-8 nice -n 19 ionice -c3 idn --no-tld >> temp/include-hosts.txt
 
 	if [[ "$CLEAR_HOSTS" == 'y' ]]; then
 		grep -Evi '[ck]a+[szc3]+[iley1]+n+[0-9o]|[vw][uy]+[l1]+[kc]a+n|[vw]a+[vw]+a+d+a|x-*bet|most-*bet|leon-*bet|rio-*bet|mel-*bet|ramen-*bet|marathon-*bet|max-*bet|bet-*win|gg-*bet|spin-*bet|banzai-*bet|1iks-*bet|x-*slot|sloto-*zal|max-*slot|bk-*leon|gold-*fishka|play-*fortuna|dragon-*money|poker-*dom|1-*win|crypto-*bos|free-*spin|fair-*spin|no-*deposit|igrovye|avtomaty|bookmaker|zerkalo|slottica|sykaaa|admiral-*x|x-*admiral|pinup-*bet|pari-*match|betting|partypoker|jackpot|bonus|azino[0-9-]|888-*starz|zooma[0-9-]|zenit-*bet|eldorado|slots|vodka|newretro|platinum|igrat|flagman|arkada' temp/include-hosts.txt | sort -u > temp/include-hosts2.txt
