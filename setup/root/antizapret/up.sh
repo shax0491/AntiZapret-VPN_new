@@ -61,7 +61,7 @@ if [[ "$ANTIZAPRET_WARP" == '2' || "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WAR
 			echo "[Interface]
 PrivateKey = $PROTON_ANTIZAPRET_PRIVATE_KEY
 Address = $ANTIZAPRET_WARP_ADDRESS
-MTU = 1420
+MTU = 1280
 Table = 13335
 PostUp = ip rule add from $IP.29.0.0/16 to $IP.29.0.0/16 lookup main priority 5000 || true
 PostUp = ip rule add from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 priority 10000 || true
@@ -105,7 +105,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 		echo "[Interface]
 PrivateKey = $ANTIZAPRET_WARP_PRIVATE_KEY
 Address = $ANTIZAPRET_WARP_ADDRESS
-MTU = 1420
+MTU = 1280
 Table = 13335
 PostUp = ip rule add from $IP.29.0.0/16 to $IP.29.0.0/16 lookup main priority 5000 || true
 PostUp = ip rule add from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 priority 10000 || true
@@ -156,7 +156,7 @@ if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' ]]; then
 			echo "[Interface]
 PrivateKey = $PROTON_VPN_PRIVATE_KEY
 Address = $VPN_WARP_ADDRESS
-MTU = 1420
+MTU = 1280
 Table = 13336
 PostUp = ip rule add from $IP.28.0.0/16 to $IP.28.0.0/16 lookup main priority 5000 || true
 PostUp = ip rule add from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 10000 || true
@@ -200,7 +200,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 		echo "[Interface]
 PrivateKey = $VPN_WARP_PRIVATE_KEY
 Address = $VPN_WARP_ADDRESS
-MTU = 1420
+MTU = 1280
 Table = 13336
 PostUp = ip rule add from $IP.28.0.0/16 to $IP.28.0.0/16 lookup main priority 5000 || true
 PostUp = ip rule add from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 10000 || true
