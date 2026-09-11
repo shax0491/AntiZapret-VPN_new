@@ -192,6 +192,30 @@ function download {
 	return 0
 }
 
+# Параллельное пакетное скачивание независимых списков (IP/hosts/rpz и т.п.).
+# Используется ТОЛЬКО для некритичных (critical=n) загрузок - каждая пишет в свой
+# отдельный path, поэтому гонок нет. Критичные self-update загрузки (update.sh,
+# parse.sh, doall.sh) остаются последовательными выше/ниже по коду: их `exit 2`
+# должен реально прерывать update.sh, а не просто завершать фоновую задачу.
+MAX_PARALLEL_DOWNLOADS=6
+BG_PIDS=()
+
+queue_download() {
+	while (( $(jobs -rp | wc -l) >= MAX_PARALLEL_DOWNLOADS )); do
+		wait -n || true
+	done
+	download "$@" &
+	BG_PIDS+=("$!")
+}
+
+wait_downloads() {
+	local pid
+	for pid in "${BG_PIDS[@]}"; do
+		wait "$pid" || true
+	done
+	BG_PIDS=()
+}
+
 # Скрипт запущен с `set -e` - без `|| true` возврат download() любого ненулевого кода
 # (в т.ч. штатный "не критично, оставляю кэш") оборвал бы весь update.sh на первой же
 # сетевой заминке. exit 2 внутри download() при этом отработает как надо - `|| true`
@@ -203,30 +227,32 @@ download $DOALL_PATH $DOALL_LINK y || true
 source setup
 
 if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" == 'noclean' ]]; then
-	download $DOMAIN_PATH $DOMAIN_LINK n || true
-	download $DOMAIN2_PATH $DOMAIN2_LINK n || true
-	download $DENY_RPZ_PATH $DENY_RPZ_LINK n || true
-	download $DENY2_RPZ_PATH $DENY2_RPZ_LINK n || true
-	download $INCLUDE_HOSTS_PATH $INCLUDE_HOSTS_LINK n || true
-	download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK n || true
+	queue_download $DOMAIN_PATH $DOMAIN_LINK n
+	queue_download $DOMAIN2_PATH $DOMAIN2_LINK n
+	queue_download $DENY_RPZ_PATH $DENY_RPZ_LINK n
+	queue_download $DENY2_RPZ_PATH $DENY2_RPZ_LINK n
+	queue_download $INCLUDE_HOSTS_PATH $INCLUDE_HOSTS_LINK n
+	queue_download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK n
 
 	if [[ "$ROUTE_ALL" == 'y' ]]; then
-		download $EXCLUDE_HOSTS_PATH $EXCLUDE_HOSTS_LINK n || true
+		queue_download $EXCLUDE_HOSTS_PATH $EXCLUDE_HOSTS_LINK n
 	else
 		printf '# НЕ РЕДАКТИРУЙТЕ ЭТОТ ФАЙЛ!' > $EXCLUDE_HOSTS_PATH
 	fi
 
 	if [[ "$ANTIZAPRET_ADBLOCK" == 'y' || "$VPN_ADBLOCK" == 'y' ]]; then
-		download $INCLUDE_ADBLOCK_HOSTS_PATH $INCLUDE_ADBLOCK_HOSTS_LINK n || true
-		download $EXCLUDE_ADBLOCK_HOSTS_PATH $EXCLUDE_ADBLOCK_HOSTS_LINK n || true
-		download $ADGUARD_PATH $ADGUARD_LINK n $ADGUARD_MIRROR || true
-		download $OISD_PATH $OISD_LINK n $OISD_MIRROR || true
+		queue_download $INCLUDE_ADBLOCK_HOSTS_PATH $INCLUDE_ADBLOCK_HOSTS_LINK n
+		queue_download $EXCLUDE_ADBLOCK_HOSTS_PATH $EXCLUDE_ADBLOCK_HOSTS_LINK n
+		queue_download $ADGUARD_PATH $ADGUARD_LINK n $ADGUARD_MIRROR
+		queue_download $OISD_PATH $OISD_LINK n $OISD_MIRROR
 	else
 		> $INCLUDE_ADBLOCK_HOSTS_PATH
 		> $EXCLUDE_ADBLOCK_HOSTS_PATH
 		> $ADGUARD_PATH
 		> $OISD_PATH
 	fi
+
+	wait_downloads
 fi
 
 if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == 'noclean' ]]; then
@@ -234,17 +260,19 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	# rm -rf download - теперь, когда download/ больше не стирается целиком при каждом
 	# обновлении (см. выше), явно удаляем файл при выключенном тумблере, иначе устаревший
 	# список IP продолжит маршрутизироваться через AntiZapret VPN даже после отключения.
-	if [[ "$DISCORD_INCLUDE" == 'y' ]]; then download $DISCORD_IPS_PATH $DISCORD_IPS_LINK n || true; else rm -f $DISCORD_IPS_PATH; fi
-	if [[ "$CLOUDFLARE_INCLUDE" == 'y' ]]; then download $CLOUDFLARE_IPS_PATH $CLOUDFLARE_IPS_LINK n || true; else rm -f $CLOUDFLARE_IPS_PATH; fi
-	if [[ "$AMAZON_INCLUDE" == 'y' ]]; then download $AMAZON_IPS_PATH $AMAZON_IPS_LINK n || true; else rm -f $AMAZON_IPS_PATH; fi
-	if [[ "$HETZNER_INCLUDE" == 'y' ]]; then download $HETZNER_IPS_PATH $HETZNER_IPS_LINK n || true; else rm -f $HETZNER_IPS_PATH; fi
-	if [[ "$DIGITALOCEAN_INCLUDE" == 'y' ]]; then download $DIGITALOCEAN_IPS_PATH $DIGITALOCEAN_IPS_LINK n || true; else rm -f $DIGITALOCEAN_IPS_PATH; fi
-	if [[ "$OVH_INCLUDE" == 'y' ]]; then download $OVH_IPS_PATH $OVH_IPS_LINK n || true; else rm -f $OVH_IPS_PATH; fi
-	if [[ "$TELEGRAM_INCLUDE" == 'y' ]]; then download $TELEGRAM_IPS_PATH $TELEGRAM_IPS_LINK n || true; else rm -f $TELEGRAM_IPS_PATH; fi
-	if [[ "$GOOGLE_INCLUDE" == 'y' ]]; then download $GOOGLE_IPS_PATH $GOOGLE_IPS_LINK n || true; else rm -f $GOOGLE_IPS_PATH; fi
-	if [[ "$AKAMAI_INCLUDE" == 'y' ]]; then download $AKAMAI_IPS_PATH $AKAMAI_IPS_LINK n || true; else rm -f $AKAMAI_IPS_PATH; fi
-	if [[ "$WHATSAPP_INCLUDE" == 'y' ]]; then download $WHATSAPP_IPS_PATH $WHATSAPP_IPS_LINK n || true; else rm -f $WHATSAPP_IPS_PATH; fi
-	if [[ "$ROBLOX_INCLUDE" == 'y' ]]; then download $ROBLOX_IPS_PATH $ROBLOX_IPS_LINK n || true; else rm -f $ROBLOX_IPS_PATH; fi
+	if [[ "$DISCORD_INCLUDE" == 'y' ]]; then queue_download $DISCORD_IPS_PATH $DISCORD_IPS_LINK n; else rm -f $DISCORD_IPS_PATH; fi
+	if [[ "$CLOUDFLARE_INCLUDE" == 'y' ]]; then queue_download $CLOUDFLARE_IPS_PATH $CLOUDFLARE_IPS_LINK n; else rm -f $CLOUDFLARE_IPS_PATH; fi
+	if [[ "$AMAZON_INCLUDE" == 'y' ]]; then queue_download $AMAZON_IPS_PATH $AMAZON_IPS_LINK n; else rm -f $AMAZON_IPS_PATH; fi
+	if [[ "$HETZNER_INCLUDE" == 'y' ]]; then queue_download $HETZNER_IPS_PATH $HETZNER_IPS_LINK n; else rm -f $HETZNER_IPS_PATH; fi
+	if [[ "$DIGITALOCEAN_INCLUDE" == 'y' ]]; then queue_download $DIGITALOCEAN_IPS_PATH $DIGITALOCEAN_IPS_LINK n; else rm -f $DIGITALOCEAN_IPS_PATH; fi
+	if [[ "$OVH_INCLUDE" == 'y' ]]; then queue_download $OVH_IPS_PATH $OVH_IPS_LINK n; else rm -f $OVH_IPS_PATH; fi
+	if [[ "$TELEGRAM_INCLUDE" == 'y' ]]; then queue_download $TELEGRAM_IPS_PATH $TELEGRAM_IPS_LINK n; else rm -f $TELEGRAM_IPS_PATH; fi
+	if [[ "$GOOGLE_INCLUDE" == 'y' ]]; then queue_download $GOOGLE_IPS_PATH $GOOGLE_IPS_LINK n; else rm -f $GOOGLE_IPS_PATH; fi
+	if [[ "$AKAMAI_INCLUDE" == 'y' ]]; then queue_download $AKAMAI_IPS_PATH $AKAMAI_IPS_LINK n; else rm -f $AKAMAI_IPS_PATH; fi
+	if [[ "$WHATSAPP_INCLUDE" == 'y' ]]; then queue_download $WHATSAPP_IPS_PATH $WHATSAPP_IPS_LINK n; else rm -f $WHATSAPP_IPS_PATH; fi
+	if [[ "$ROBLOX_INCLUDE" == 'y' ]]; then queue_download $ROBLOX_IPS_PATH $ROBLOX_IPS_LINK n; else rm -f $ROBLOX_IPS_PATH; fi
+
+	wait_downloads
 fi
 
 ./custom-update.sh "$1" || true
