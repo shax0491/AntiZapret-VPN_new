@@ -57,7 +57,7 @@ echo 'Proxied ports:'
 echo '    OpenVPN UDP:           80, 443, 504, 508, 50080, 50443'
 echo '    OpenVPN TCP:           80, 443, 504, 508, 50080, 50443'
 echo '    WireGuard/AmneziaWG:   540, 580, 51080, 51443, 52080, 52443'
-echo 'More details: https://github.com/GubernievS/AntiZapret-VPN'
+echo 'More details: https://github.com/shax0491/AntiZapret-VPN_new'
 echo
 
 MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
