@@ -2,7 +2,7 @@
 #
 # Добавление/удаление клиента
 #
-# chmod +x client.sh && ./client.sh [1-6] [имя_клиента] [срок_действия_сертификата]
+# chmod +x client.sh && ./client.sh [1-9] [имя_клиента] [срок_действия_сертификата]
 #
 # Срок действия сертификата в днях - только для OpenVPN
 #
@@ -21,7 +21,7 @@ handle_error() {
 trap 'handle_error $LINENO "$BASH_COMMAND"' ERR
 
 if (( $# > 3 )); then
-	echo 'Too many parameters! Usage: ./client.sh [1-6] [client_name] [cert_expire_days]'
+	echo 'Too many parameters! Usage: ./client.sh [1-9] [client_name] [cert_expire_days]'
 	exit 2
 fi
 
@@ -635,7 +635,7 @@ restore(){
 	reboot
 }
 
-if ! [[ "$OPTION" =~ ^[1-6]$ ]]; then
+if ! [[ "$OPTION" =~ ^[1-9]$ ]]; then
 	echo
 	echo 'Please choose option:'
 	echo '    1) Add client (OpenVPN + WireGuard + AmneziaWG 1.5 + AmneziaWG 2.0)'
@@ -644,8 +644,11 @@ if ! [[ "$OPTION" =~ ^[1-6]$ ]]; then
 	echo '    4) (Re)create all client profile files'
 	echo '    5) Backup configuration and clients'
 	echo '    6) Restore configuration and clients from backup'
-	until [[ "$OPTION" =~ ^[1-6]$ ]]; do
-		read -rp 'Option choice [1-6]: ' -e OPTION
+	echo '    7) Delete client - OpenVPN only'
+	echo '    8) Delete client - WireGuard/AmneziaWG 1.5 only'
+	echo '    9) Delete client - AmneziaWG 2.0 only'
+	until [[ "$OPTION" =~ ^[1-9]$ ]]; do
+		read -rp 'Option choice [1-9]: ' -e OPTION
 	done
 fi
 
@@ -676,6 +679,24 @@ case "$OPTION" in
 	6)
 		echo 'Restore configuration and clients from backup'
 		restore
+		;;
+	7)
+		echo "Delete client $CLIENT_NAME - OpenVPN only"
+		listOpenVPN
+		askClientName
+		deleteOpenVPN
+		;;
+	8)
+		echo "Delete client $CLIENT_NAME - WireGuard/AmneziaWG 1.5 only"
+		listWireGuard
+		askClientName
+		deleteWireGuard
+		;;
+	9)
+		echo "Delete client $CLIENT_NAME - AmneziaWG 2.0 only"
+		listAmneziaWG2
+		askClientName
+		deleteAmneziaWG2
 		;;
 esac
 exit 0
