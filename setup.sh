@@ -2,7 +2,7 @@
 #
 # Скрипт для установки на своём сервере AntiZapret VPN + полный VPN
 #
-# https://github.com/shax0491/AntiZapret-VPN
+# https://github.com/shax0491/AntiZapret-VPN_new
 #
 export LC_ALL=C
 
@@ -80,14 +80,14 @@ fi
 echo
 echo -e '\e[1;32mInstalling AntiZapret VPN + full VPN...\e[0m'
 echo 'OpenVPN + WireGuard + AmneziaWG'
-echo 'More details: https://github.com/shax0491/AntiZapret-VPN'
+echo 'More details: https://github.com/shax0491/AntiZapret-VPN_new'
 echo
 
 until [[ "$RUN_SERVER_DIAGNOSTICS" =~ (y|n) ]]; do
 	read -rp 'Запустить полную диагностику сервера перед установкой? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
 done
 if [[ "$RUN_SERVER_DIAGNOSTICS" == 'y' ]]; then
-	bash <(curl -fsSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/setup/root/antizapret/check_server.sh) || true
+	bash <(curl -fsSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/setup/root/antizapret/check_server.sh) || true
 fi
 echo
 
@@ -559,7 +559,7 @@ git clone https://github.com/paulc/dnslib.git /tmp/dnslib
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --force-reinstall --user /tmp/dnslib
 
 rm -rf /tmp/antizapret
-git clone https://github.com/shax0491/AntiZapret-VPN.git /tmp/antizapret
+git clone https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/antizapret
 
 cp /root/antizapret/config/*.txt /tmp/antizapret/setup/root/antizapret/config/ || true
 cp /root/antizapret/custom*.sh /tmp/antizapret/setup/root/antizapret/ || true
