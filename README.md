@@ -87,7 +87,7 @@ AntiZapret VPN реализует технологию раздельного т
 Для установки или обновления в терминале под root выполнить:
 
 ```bash
-bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/setup.sh)
+bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/setup.sh)
 ```
 
 **Изменить настройки (или нажимать Enter для выбора значения по умолчанию):**
@@ -279,7 +279,7 @@ systemctl start warpscout-refresh.service
 
 Для установки или обновления в терминале под root выполнить:
 ```bash
-bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax0491/AntiZapret-VPN/main/proxy.sh)
+bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/proxy.sh)
 ```
 
 1. Ввести IPv4-адрес зарубежного сервера АнтиЗапрета.
