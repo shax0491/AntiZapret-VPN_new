@@ -31,24 +31,30 @@ run_check() {
 	elif [[ $rc -ne 0 ]]; then
 		echo "[$title] завершено с кодом $rc"
 	fi
+
+	# Пауза между тестами: без неё вывод одного теста тут же перекрывается
+	# следующим и прочитать результат не успеваешь. Enter - продолжить,
+	# Ctrl+C - пропустить оставшиеся тесты и выйти сразу.
+	echo
+	read -rp 'Enter - следующий тест, Ctrl+C - завершить диагностику: ' -e _ || { echo; exit 130; }
 }
 
-run_check 'IP region (ipregion.vrnt.xyz)' \
+run_check 'Регион и гео-IP (ipregion.vrnt.xyz)' \
 	bash -c 'bash <(wget -qO- https://ipregion.vrnt.xyz)'
 
-run_check 'RU Speedtest (speedtest.artydev.ru)' \
+run_check 'Скорость до России (speedtest.artydev.ru)' \
 	bash -c 'wget -qO- speedtest.artydev.ru | bash'
 
-run_check 'RU iPerf3 (itdoginfo/russian-iperf3-servers)' \
-	bash -c 'bash <(wget -qO- https://github.com/itdoginfo/russian-iperf3-servers/raw/main/speedtest.sh)'
+# -4 принудительно выбирает IPv4-only и убирает интерактивный диалог выбора
+# сети (Dual Stack/IPv4/IPv6), который иначе всплывает поверх текста и его
+# не видно за автопрокруткой; -y отключает вопросы про установку зависимостей.
+run_check 'Блокировки за рубежом (Check.Place)' \
+	bash -c 'bash <(curl -Ls ip.check.place) -4 -y -E'
 
-run_check 'Зарубежные блокировки (Check.Place)' \
-	bash -c 'bash <(curl -Ls ip.check.place) -l en'
+run_check 'Качество IP: прокси/абуз (Check.Place)' \
+	bash -c 'bash <(curl -Ls https://check.place) -4 -y -EI'
 
-run_check 'IPQuality (Check.Place)' \
-	bash -c 'bash <(curl -Ls https://check.place) -EI'
-
-run_check 'Бенчмарк сервера (bench.sh)' \
+run_check 'Общий бенчмарк сервера (bench.sh)' \
 	bash -c 'wget -qO- bench.sh | bash'
 
 run_check 'CPU benchmark (sysbench)' \
