@@ -349,6 +349,20 @@ PUBLIC_KEY=${PUBLIC_KEY}" > "$AWG2/key"
 		render "$AWG2/templates/antizapret2.conf" > "$AWG2/antizapret2.conf"
 		render "$AWG2/templates/vpn2.conf" > "$AWG2/vpn2.conf"
 	fi
+
+	# Self-heal for servers set up before the routing-collision fix existed
+	# (a same-subnet WireGuard-family interface from any other install, e.g.
+	# a legacy AmneziaWG 1.5 stack, can silently black-hole every antizapret2/
+	# vpn2 client's return traffic - see awg2-fix-routes.sh). Idempotent: patches
+	# the on-disk config for future interface restarts, and applies the routes
+	# live right now without touching the running interface or its peers.
+	for IFACE_CONF in "$AWG2/antizapret2.conf" "$AWG2/vpn2.conf"; do
+		[[ -f "$IFACE_CONF" ]] || continue
+		grep -q '^PostUp = /root/antizapret/awg2-fix-routes.sh %i$' "$IFACE_CONF" || \
+			sed -i '/^PostUp = ip link set dev %i txqueuelen 10000$/a PostUp = /root/antizapret/awg2-fix-routes.sh %i' "$IFACE_CONF"
+	done
+	command -v awg &>/dev/null && awg show antizapret2 &>/dev/null && /root/antizapret/awg2-fix-routes.sh antizapret2 || true
+	command -v awg &>/dev/null && awg show vpn2 &>/dev/null && /root/antizapret/awg2-fix-routes.sh vpn2 || true
 }
 
 addAmneziaWG2(){
