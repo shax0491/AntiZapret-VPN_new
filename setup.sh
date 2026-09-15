@@ -83,6 +83,14 @@ echo 'OpenVPN + WireGuard + AmneziaWG'
 echo 'More details: https://github.com/shax0491/AntiZapret-VPN_new'
 echo
 
+# Выключаем IPv6 уже здесь (а не только в основном блоке ниже) - сторонние
+# скрипты диагностики (check_server.sh) сами определяют доступные стеки сети
+# и при живом IPv6 спрашивают через диалог "IPv4/IPv6 Dual Stack" вручную;
+# если IPv6 уже отключен на уровне ядра, такие диалоги молча выбирают IPv4.
+sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null
+sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null
+sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null
+
 until [[ "$RUN_SERVER_DIAGNOSTICS" =~ (y|n) ]]; do
 	read -rp 'Запустить полную диагностику сервера перед установкой? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
 done
@@ -440,6 +448,12 @@ systemctl disable --now wg-quick@antizapret 2>/dev/null || true
 systemctl disable --now wg-quick@vpn 2>/dev/null || true
 systemctl disable --now amneziawg@antizapret2 2>/dev/null || true
 systemctl disable --now amneziawg@vpn2 2>/dev/null || true
+# warpscout мониторит только Cloudflare WARP - если сервер раньше ставился с
+# WARP_PROVIDER=cloudflare, а теперь переустанавливается на Proton (или наоборот
+# отключает WARP), таймер без этой строки остаётся висеть включённым от старого
+# запуска, хотя ниже он либо не переустанавливается заново, либо получает новый
+# аккаунт - актуальное состояние решает блок с WARP_PROVIDER ниже, а не история.
+systemctl disable --now warpscout-refresh.timer 2>/dev/null || true
 
 apt-get purge -y ufw
 apt-get purge -y firewalld
