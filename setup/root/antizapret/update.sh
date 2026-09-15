@@ -20,7 +20,7 @@ log() {
 }
 
 FORK_USER="shax0491"
-FORK_REPO="AntiZapret-VPN"
+FORK_REPO="AntiZapret-VPN_new"
 FORK_BRANCH="main"
 FORK_BASE="https://raw.githubusercontent.com/${FORK_USER}/${FORK_REPO}/${FORK_BRANCH}/setup/root/antizapret"
 # Зеркало jsDelivr на тот же репозиторий/ветку - подставляется автоматически в download(),
