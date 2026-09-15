@@ -35,27 +35,35 @@ run_check() {
 	# Пауза между тестами: без неё вывод одного теста тут же перекрывается
 	# следующим и прочитать результат не успеваешь. Enter - продолжить,
 	# Ctrl+C - пропустить оставшиеся тесты и выйти сразу.
+	#
+	# Читаем строго из /dev/tty, а не из fd0: скрипт обычно запускают как
+	# `curl ... setup.sh | bash`, и fd0 там - это тот же пайп, из которого
+	# ВНЕШНИЙ bash ещё дочитывает хвост setup.sh. Если тут читать из fd0,
+	# Enter/Ctrl+C съедает байты из ещё не прочитанного скрипта, и внешний
+	# bash падает с "syntax error near unexpected token" на случайном месте.
 	echo
-	read -rp 'Enter - следующий тест, Ctrl+C - завершить диагностику: ' -e _ || { echo; exit 130; }
+	read -rp 'Enter - следующий тест, Ctrl+C - завершить диагностику: ' -e _ < /dev/tty || { echo; exit 130; }
 }
 
-run_check 'Регион и гео-IP (ipregion.vrnt.xyz)' \
-	bash -c 'bash <(wget -qO- https://ipregion.vrnt.xyz)'
+# Каждый инструмент ниже принудительно ограничен IPv4 (-4 / --ipv4, где
+# поддерживается): на этих серверах IPv6 отключён на уровне ядра ещё до
+# запуска диагностики, и без явного форсирования IPv4 некоторые инструменты
+# всё равно пытаются резолвить AAAA и виснут в ожидании таймаута.
+#
+# ipregion.vrnt.xyz исключён: он дублирует гео/ASN-инфо, которая и так есть
+# в выводах Check.Place и bench.sh ниже.
 
-run_check 'Скорость до России (speedtest.artydev.ru)' \
-	bash -c 'wget -qO- speedtest.artydev.ru | bash'
+# -EI (в отличие от -E) в конце показывает собственное интерактивное меню
+# "IP Quality Check Script" и не выходит из него сам - весь прогон зависает
+# на этом меню до ручного Ctrl+C. Используем только -E: тот же набор
+# проверок блокировок/гео без зависающего меню.
+run_check 'Блокировки и качество IP (Check.Place)' \
+	bash -c 'bash <(curl -4 -Ls check.place) -4 -y -E'
 
-# -4 принудительно выбирает IPv4-only и убирает интерактивный диалог выбора
-# сети (Dual Stack/IPv4/IPv6), который иначе всплывает поверх текста и его
-# не видно за автопрокруткой; -y отключает вопросы про установку зависимостей.
-run_check 'Блокировки за рубежом (Check.Place)' \
-	bash -c 'bash <(curl -Ls ip.check.place) -4 -y -E'
-
-run_check 'Качество IP: прокси/абуз (Check.Place)' \
-	bash -c 'bash <(curl -Ls https://check.place) -4 -y -EI'
-
+# speedtest.artydev.ru - тот же bench.sh (Teddysun), но зеркало с рекламными
+# баннерами поверх результатов; ниже используется официальный bench.sh.
 run_check 'Общий бенчмарк сервера (bench.sh)' \
-	bash -c 'wget -qO- bench.sh | bash'
+	bash -c 'curl -4 -fsSL bench.sh | bash'
 
 run_check 'CPU benchmark (sysbench)' \
 	bash -c 'command -v sysbench &>/dev/null || apt-get install -y sysbench; sysbench cpu run --threads=1 --time=10'
