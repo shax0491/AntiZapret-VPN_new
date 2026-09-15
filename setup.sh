@@ -185,7 +185,7 @@ echo '    2) All     - Route all traffic (domains and IPs)'
 echo '    3) Domain  - Route AntiZapret domains and config/include-warp-hosts.txt, excluding config/exclude-warp-hosts.txt'
 echo '    4) Custom  - Route domains only from config/include-warp-hosts.txt, excluding config/exclude-warp-hosts.txt'
 until [[ "$ANTIZAPRET_WARP" =~ ^[1-4]$ ]]; do
-	read -rp 'WARP choice [1-4]: ' -e -i 4 ANTIZAPRET_WARP
+	read -rp 'WARP choice [1-4]: ' -e -i 2 ANTIZAPRET_WARP
 done
 echo
 echo -e 'Choose Cloudflare WARP for \e[1;32mfull VPN\e[0m (vpn-*) outbound traffic:'
