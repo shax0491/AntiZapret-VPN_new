@@ -95,7 +95,17 @@ until [[ "$RUN_SERVER_DIAGNOSTICS" =~ (y|n) ]]; do
 	read -rp 'Запустить полную диагностику сервера перед установкой? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
 done
 if [[ "$RUN_SERVER_DIAGNOSTICS" == 'y' ]]; then
-	bash <(curl -fsSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/setup/root/antizapret/check_server.sh) || true
+	# Обычный `bash <(curl ...)` (process substitution) тут не годится: setup.sh
+	# сам обычно запускают как `curl ... | bash`, и его fd0 - это тот же пайп,
+	# из которого bash ещё дочитывает хвост собственного скрипта. Process
+	# substitution путает буферизацию чтения в этой ситуации и рвёт setup.sh
+	# на произвольном месте ("syntax error near unexpected token"). Поэтому
+	# качаем во временный файл с реальным fd и запускаем его отдельно.
+	CHECK_SERVER_TMP="$(mktemp)"
+	if curl -fsSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/setup/root/antizapret/check_server.sh -o "$CHECK_SERVER_TMP"; then
+		bash "$CHECK_SERVER_TMP" || true
+	fi
+	rm -f "$CHECK_SERVER_TMP"
 fi
 echo
 
