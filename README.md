@@ -191,6 +191,16 @@ nano /root/antizapret/setup
 /root/antizapret/up.sh
 ```
 
+**7б. Сменить провайдера WARP (Proton ↔ Cloudflare) после установки**
+```bash
+nano /root/antizapret/setup
+```
+> Поменяйте `WARP_PROVIDER=proton` на `WARP_PROVIDER=cloudflare` (или наоборот). Если переключаете на Proton — заполните `PROTON_*` переменные, как в пункте 7. После правки примените:
+```bash
+/root/antizapret/up.sh
+```
+> `doall.sh` для этого **не подходит** — он обновляет только CIDR-списки/маршруты и не поднимает WARP-интерфейсы заново. При `WARP_PROVIDER=cloudflare` `up.sh` сам сгенерирует ключи и зарегистрирует новый анонимный WARP-аккаунт через открытый API Cloudflare — ничего вводить не нужно. **Важно:** этот сгенерированный ключ не сохраняется в файл `setup`, поэтому при каждом следующем запуске `up.sh` (в том числе при перезагрузке сервера) регистрируется новый анонимный аккаунт заново, и exit-IP через Cloudflare WARP меняется. У Proton IP постоянный, так как ключ вводится вручную один раз.
+
 **8. Автоподбор эндпоинта Cloudflare WARP (только для провайдера Cloudflare)**
 Если выбран `WARP_PROVIDER=cloudflare`, systemd-таймер `warpscout-refresh.timer` периодически проверяет через [warpscout](https://github.com/vernette/warpscout), не определяется ли текущий эндпоинт `warp-antizapret`/`warp-vpn` сервисами вроде YouTube как Россия (поле `"GL"` в ответе youtube.com), и если да — подбирает и переключает на другой эндпоинт "на лету" (`wg set`, без разрыва клиентских сессий). Проверить состояние и лог:
 ```bash
