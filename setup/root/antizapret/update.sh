@@ -158,6 +158,13 @@ function download {
 		elif head -c 300 "$tmp_path" | grep -qiE '<html|<!doctype'; then
 			log "  ERROR: downloaded file looks like an HTML error page: $path"
 			ok=0
+		elif [[ "$path" == *.sh ]] && grep -q $'\r' "$tmp_path"; then
+			# Источники сами по себе (GitHub/jsDelivr) отдают чистый LF, но сторонний
+			# CORS-прокси fallback наблюдался отдающим CRLF - молча ломает bash
+			# ("log() {\r" -> syntax error) на исполнении, не при скачивании, поэтому
+			# без этой проверки проблема всплывает не сразу и не здесь.
+			log "  WARNING: $path downloaded with CRLF line endings, normalizing to LF"
+			sed -i 's/\r$//' "$tmp_path"
 		fi
 	fi
 
