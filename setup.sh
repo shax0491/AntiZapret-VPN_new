@@ -611,7 +611,10 @@ cp /root/antizapret/config/*.txt /tmp/antizapret/setup/root/antizapret/config/ |
 cp /root/antizapret/custom*.sh /tmp/antizapret/setup/root/antizapret/ || true
 cp /etc/knot-resolver/*.lua /tmp/antizapret/setup/etc/knot-resolver/ || true
 
-if [[ -e /root/backup*.tar.gz ]]; then
+shopt -s nullglob
+BACKUP_FILES=(/root/backup*.tar.gz)
+shopt -u nullglob
+if (( ${#BACKUP_FILES[@]} > 0 )); then
 	rm -rf /root/easyrsa3
 	rm -rf /root/wireguard
 	rm -rf /root/config
