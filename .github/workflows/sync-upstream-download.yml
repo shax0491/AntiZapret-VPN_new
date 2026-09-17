@@ -1,0 +1,46 @@
+name: Sync upstream download lists
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch current file list from upstream
+        id: list
+        run: |
+          set -e
+          curl -fsSL "https://api.github.com/repos/GubernievS/AntiZapret-VPN/contents/setup/root/antizapret/download" \
+            | grep '"name"' | sed -E 's/.*"name": "(.*)",?/\1/' > /tmp/upstream-files.txt
+          cat /tmp/upstream-files.txt
+
+      - name: Download every upstream file (only the download/ data mirror, never scripts)
+        run: |
+          set -e
+          cd setup/root/antizapret/download
+          while IFS= read -r f; do
+            curl -fsSL "https://raw.githubusercontent.com/GubernievS/AntiZapret-VPN/main/setup/root/antizapret/download/$f" -o "$f.new"
+          done < /tmp/upstream-files.txt
+          while IFS= read -r f; do
+            mv -f "$f.new" "$f"
+          done < /tmp/upstream-files.txt
+
+      - name: Commit and push if anything changed
+        run: |
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add setup/root/antizapret/download/
+          if git diff --cached --quiet; then
+            echo "No changes upstream - nothing to sync"
+            exit 0
+          fi
+          git commit -m 'download/: автосинхронизация доменных и IP-списков с апстримом'
+          git push
