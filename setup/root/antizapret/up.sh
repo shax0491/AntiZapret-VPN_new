@@ -83,7 +83,12 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 					ANTIZAPRET_OUT_IP=$ANTIZAPRET_WARP_IP
 				fi
 			else
-				echo "Starting $ANTIZAPRET_WARP_INTERFACE (Proton) failed! Use $DEFAULT_INTERFACE"
+				if [[ "$WARP_PROTECTION" == 'y' ]]; then
+					echo "Starting $ANTIZAPRET_WARP_INTERFACE (Proton) failed! Blocking traffic"
+					iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -j DROP
+				else
+					echo "Starting $ANTIZAPRET_WARP_INTERFACE (Proton) failed! Use $DEFAULT_INTERFACE"
+				fi
 			fi
 		fi
 	else
@@ -127,7 +132,12 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 				ANTIZAPRET_OUT_IP=$ANTIZAPRET_WARP_IP
 			fi
 		else
-			echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+			if [[ "$WARP_PROTECTION" == 'y' ]]; then
+				echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Blocking traffic"
+				iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -j DROP
+			else
+				echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+			fi
 		fi
 	fi
 	set -e
@@ -178,7 +188,12 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 					VPN_OUT_IP=$VPN_WARP_IP
 				fi
 			else
-				echo "Starting $VPN_WARP_INTERFACE (Proton) failed! Use $DEFAULT_INTERFACE"
+				if [[ "$WARP_PROTECTION" == 'y' ]]; then
+					echo "Starting $VPN_WARP_INTERFACE (Proton) failed! Blocking traffic"
+					iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -j DROP
+				else
+					echo "Starting $VPN_WARP_INTERFACE (Proton) failed! Use $DEFAULT_INTERFACE"
+				fi
 			fi
 		fi
 	else
@@ -222,7 +237,12 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 				VPN_OUT_IP=$VPN_WARP_IP
 			fi
 		else
-			echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+			if [[ "$WARP_PROTECTION" == 'y' ]]; then
+				echo "Starting $VPN_WARP_INTERFACE failed! Blocking traffic"
+				iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -j DROP
+			else
+				echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+			fi
 		fi
 	fi
 	set -e
@@ -443,14 +463,12 @@ else
 fi
 
 # Network tuning
-SEGMENTATION_OFFLOAD="${SEGMENTATION_OFFLOAD:-off}"
 TXQUEUELEN="${TXQUEUELEN:-10000}"
 CPU_MASK=$(printf '%x' $(( (1 << $(nproc)) - 1 )))
 MTU="${MTU:-1420}"
 for dev_path in /sys/class/net/*; do
 	dev="${dev_path##*/}"
 	[[ "$dev" == "lo" || "$dev" == *docker* ]] && continue
-	ethtool -K "$dev" tso "$SEGMENTATION_OFFLOAD" gso "$SEGMENTATION_OFFLOAD" gro "$SEGMENTATION_OFFLOAD"
 	if [[ -e "/sys/class/net/$dev/device" ]]; then
 		ip link set "$dev" txqueuelen "$TXQUEUELEN"
 		echo "$CPU_MASK" | tee /sys/class/net/$dev/queues/rx-*/rps_cpus >/dev/null

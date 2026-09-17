@@ -223,9 +223,15 @@ if [[ "$ANTIZAPRET_WARP" != '1' || "$VPN_WARP" != '1' ]]; then
 		read -rp 'WARP tunnel MTU [576-1324]: ' -e -i "$WARP_MTU_DETECTED" WARP_MTU
 	done
 	echo
+	echo -e 'Warning! WARP protection blocks \e[1;32mAntiZapret VPN\e[0m and \e[1;32mfull VPN\e[0m traffic if WARP failed to connect!'
+	until [[ "$WARP_PROTECTION" =~ (y|n) ]]; do
+		read -rp 'Enable WARP protection? [y/n]: ' -e -i y WARP_PROTECTION
+	done
+	echo
 else
 	WARP_PROVIDER=proton
 	WARP_MTU=1280
+	WARP_PROTECTION=n
 fi
 
 # --- Proton VPN: получение и разбор WireGuard-конфигов взамен авторегистрации WARP ---
@@ -267,31 +273,18 @@ parse_proton_wg_conf() {
 	return 0
 }
 
-# Построчное чтение через read -r без ожидания Ctrl+D: пользователь вставляет конфиг
-# и завершает ввод пустой строкой, вместо read -rp ... | cat - EOF.
+# Читаем до реального EOF (Ctrl+D), а не до пустой строки - однозначный сигнал.
+# Пустая строка ломалась: настоящий WireGuard-конфиг ВСЕГДА содержит пустую
+# строку между [Interface] и [Peer] - при стопе на первой пустой строке секция
+# [Peer] (PublicKey/Endpoint) отрезалась и никогда не читалась, конфиг всегда
+# признавался неполным. Ctrl+D эту проблему не имеет - конфиг читается целиком.
 #
-# Стоп ровно на ПЕРВОЙ пустой строке был багом: настоящий WireGuard-конфиг
-# ВСЕГДА содержит пустую строку между [Interface] и [Peer] - секция [Peer]
-# (PublicKey/Endpoint) отрезалась и никогда не читалась, конфиг всегда
-# признавался неполным. Теперь стоп только на ДВУХ пустых строках подряд -
-# внутреннюю пустую строку это переживает, а завершить ввод всё так же можно
-# одним лишним Enter в конце (пустая строка от вставки + ручной Enter = два
-# подряд). Сами пустые строки в результат не попадают - парсеру ниже они не
-# нужны, он ищет поля по regex, а не по позиции.
+# Строго из /dev/tty, а не из fd0: setup.sh обычно запускают как
+# `curl ... | bash` - fd0 там уже занят самим телом скрипта, `cat` без
+# редиректа сожрал бы остаток setup.sh как "конфиг" вместо настоящего Ctrl+D
+# с клавиатуры (тот же принцип, что и в check_server.sh).
 read_proton_config() {
-	local line
-	local -a lines=()
-	local blank_run=0
-	while IFS= read -r line; do
-		if [[ -z "$line" ]]; then
-			(( blank_run++ ))
-			(( blank_run >= 2 )) && break
-			continue
-		fi
-		blank_run=0
-		lines+=("$line")
-	done
-	printf '%s\n' "${lines[@]}"
+	cat < /dev/tty
 }
 
 if [[ "$WARP_PROVIDER" == 'proton' ]]; then
@@ -310,28 +303,28 @@ if [[ "$WARP_PROVIDER" == 'proton' ]]; then
 	fi
 
 	if [[ "$ANTIZAPRET_WARP" != '1' ]]; then
-		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
+		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Ctrl+D to finish:'
 		RAW="$(read_proton_config)"
 		until parse_proton_wg_conf "$RAW" PROTON_ANTIZAPRET; do
-			echo 'Paste again, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
+			echo 'Paste again, then press Ctrl+D to finish:'
 			RAW="$(read_proton_config)"
 		done
 		echo
 	fi
 
 	if [[ "$VPN_WARP" != '1' ]]; then
-		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
+		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Ctrl+D to finish:'
 		RAW="$(read_proton_config)"
 		until parse_proton_wg_conf "$RAW" PROTON_VPN; do
-			echo 'Paste again, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
+			echo 'Paste again, then press Ctrl+D to finish:'
 			RAW="$(read_proton_config)"
 		done
 		if [[ "$ANTIZAPRET_WARP" != '1' && "$PROTON_VPN_PRIVATE_KEY" == "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; then
 			echo 'Error! This is the same key you already pasted for AntiZapret VPN egress.'
-			echo 'Paste a DIFFERENT Proton WireGuard config for full VPN egress, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
+			echo 'Paste a DIFFERENT Proton WireGuard config for full VPN egress, then press Ctrl+D to finish:'
 			RAW="$(read_proton_config)"
 			until parse_proton_wg_conf "$RAW" PROTON_VPN && [[ "$PROTON_VPN_PRIVATE_KEY" != "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; do
-				echo 'Still the same key (or invalid config). Paste a DIFFERENT Proton config, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
+				echo 'Still the same key (or invalid config). Paste a DIFFERENT Proton config, then press Ctrl+D to finish:'
 				RAW="$(read_proton_config)"
 			done
 		fi
@@ -580,7 +573,7 @@ if [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
 elif [[ "$OS" == 'debian' ]] && (( VERSION < 14 )); then
 	INSTALL="-t $CODENAME-backports linux-image-$ARCH linux-headers-$ARCH"
 fi
-apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq ethtool iproute2
+apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2
 apt-get autoremove --purge -y
 apt-get clean
 
@@ -662,6 +655,7 @@ OPENVPN_DCO=$OPENVPN_DCO
 AWG2_MASQUERADE=$AWG2_MASQUERADE
 WARP_PROVIDER=$WARP_PROVIDER
 WARP_MTU=$WARP_MTU
+WARP_PROTECTION=$WARP_PROTECTION
 ANTIZAPRET_WARP=$ANTIZAPRET_WARP
 ANTIZAPRET_WARP_PRIVATE_KEY=
 ANTIZAPRET_WARP_PUBLIC_KEY=
@@ -716,7 +710,6 @@ AKAMAI_INCLUDE=$AKAMAI_INCLUDE
 CLEAR_HOSTS=y
 TXQUEUELEN=10000
 MTU=$VPN_MTU
-SEGMENTATION_OFFLOAD=off
 DEFAULT_INTERFACE=
 DEFAULT_IP=
 ANTIZAPRET_OUT_INTERFACE=
