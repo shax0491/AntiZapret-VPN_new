@@ -268,12 +268,27 @@ parse_proton_wg_conf() {
 }
 
 # Построчное чтение через read -r без ожидания Ctrl+D: пользователь вставляет конфиг
-# и один раз нажимает Enter (пустая строка завершает ввод), вместо read -rp ... | cat - EOF.
+# и завершает ввод пустой строкой, вместо read -rp ... | cat - EOF.
+#
+# Стоп ровно на ПЕРВОЙ пустой строке был багом: настоящий WireGuard-конфиг
+# ВСЕГДА содержит пустую строку между [Interface] и [Peer] - секция [Peer]
+# (PublicKey/Endpoint) отрезалась и никогда не читалась, конфиг всегда
+# признавался неполным. Теперь стоп только на ДВУХ пустых строках подряд -
+# внутреннюю пустую строку это переживает, а завершить ввод всё так же можно
+# одним лишним Enter в конце (пустая строка от вставки + ручной Enter = два
+# подряд). Сами пустые строки в результат не попадают - парсеру ниже они не
+# нужны, он ищет поля по regex, а не по позиции.
 read_proton_config() {
 	local line
 	local -a lines=()
+	local blank_run=0
 	while IFS= read -r line; do
-		[[ -z "$line" ]] && break
+		if [[ -z "$line" ]]; then
+			(( blank_run++ ))
+			(( blank_run >= 2 )) && break
+			continue
+		fi
+		blank_run=0
 		lines+=("$line")
 	done
 	printf '%s\n' "${lines[@]}"
@@ -295,28 +310,28 @@ if [[ "$WARP_PROVIDER" == 'proton' ]]; then
 	fi
 
 	if [[ "$ANTIZAPRET_WARP" != '1' ]]; then
-		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Enter on an empty line to finish:'
+		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
 		RAW="$(read_proton_config)"
 		until parse_proton_wg_conf "$RAW" PROTON_ANTIZAPRET; do
-			echo 'Paste again, then press Enter on an empty line to finish:'
+			echo 'Paste again, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
 			RAW="$(read_proton_config)"
 		done
 		echo
 	fi
 
 	if [[ "$VPN_WARP" != '1' ]]; then
-		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Enter on an empty line to finish:'
+		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
 		RAW="$(read_proton_config)"
 		until parse_proton_wg_conf "$RAW" PROTON_VPN; do
-			echo 'Paste again, then press Enter on an empty line to finish:'
+			echo 'Paste again, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
 			RAW="$(read_proton_config)"
 		done
 		if [[ "$ANTIZAPRET_WARP" != '1' && "$PROTON_VPN_PRIVATE_KEY" == "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; then
 			echo 'Error! This is the same key you already pasted for AntiZapret VPN egress.'
-			echo 'Paste a DIFFERENT Proton WireGuard config for full VPN egress, then press Enter on an empty line to finish:'
+			echo 'Paste a DIFFERENT Proton WireGuard config for full VPN egress, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
 			RAW="$(read_proton_config)"
 			until parse_proton_wg_conf "$RAW" PROTON_VPN && [[ "$PROTON_VPN_PRIVATE_KEY" != "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; do
-				echo 'Still the same key (or invalid config). Paste a DIFFERENT Proton config, then press Enter on an empty line to finish:'
+				echo 'Still the same key (or invalid config). Paste a DIFFERENT Proton config, then press Enter twice on an empty line to finish (one blank line inside the config is fine):'
 				RAW="$(read_proton_config)"
 			done
 		fi
