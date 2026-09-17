@@ -181,14 +181,6 @@ until [[ "$OPENVPN_DCO" =~ (y|n) ]]; do
 	read -rp 'Turn on OpenVPN DCO? [y/n]: ' -e -i y OPENVPN_DCO
 done
 echo
-echo -e 'Choose egress VPN provider for \e[1;32mWARP-style\e[0m outbound routing (used below for AntiZapret and/or full VPN):'
-echo '    1) Proton VPN      - Recommended: stable, no forced RU geo-exit, paste your own WireGuard config'
-echo '    2) Cloudflare WARP - Legacy, auto-registered, endpoint may be unstable or geolocate as RU'
-until [[ "$WARP_PROVIDER_CHOICE" =~ ^[1-2]$ ]]; do
-	read -rp 'Provider choice [1-2]: ' -e -i 1 WARP_PROVIDER_CHOICE
-done
-[[ "$WARP_PROVIDER_CHOICE" == '1' ]] && WARP_PROVIDER=proton || WARP_PROVIDER=cloudflare
-echo
 echo -e 'Choose Cloudflare WARP for \e[1;32mAntiZapret VPN\e[0m (antizapret-*) outbound traffic:'
 echo '    1) None    - Do not use'
 echo '    2) All     - Route all traffic (domains and IPs)'
@@ -205,6 +197,22 @@ until [[ "$VPN_WARP" =~ ^[1-2]$ ]]; do
 	read -rp 'WARP choice [1-2]: ' -e -i 2 VPN_WARP
 done
 echo
+
+# Провайдер не нужен, если WARP не используется ни для AntiZapret, ни для
+# полного VPN - раньше этот вопрос задавался ДО вышестоящих двух и его
+# невозможно было пропустить даже выбрав "None" для обоих scope ниже.
+if [[ "$ANTIZAPRET_WARP" != '1' || "$VPN_WARP" != '1' ]]; then
+	echo -e 'Choose egress VPN provider for \e[1;32mWARP-style\e[0m outbound routing (used above for AntiZapret and/or full VPN):'
+	echo '    1) Proton VPN      - Recommended: stable, no forced RU geo-exit, paste your own WireGuard config'
+	echo '    2) Cloudflare WARP - Legacy, auto-registered, endpoint may be unstable or geolocate as RU'
+	until [[ "$WARP_PROVIDER_CHOICE" =~ ^[1-2]$ ]]; do
+		read -rp 'Provider choice [1-2]: ' -e -i 1 WARP_PROVIDER_CHOICE
+	done
+	[[ "$WARP_PROVIDER_CHOICE" == '1' ]] && WARP_PROVIDER=proton || WARP_PROVIDER=cloudflare
+	echo
+else
+	WARP_PROVIDER=proton
+fi
 
 # --- Proton VPN: получение и разбор WireGuard-конфигов взамен авторегистрации WARP ---
 # Запрашивается сразу после выбора провайдера и охвата WARP (ANTIZAPRET_WARP/VPN_WARP),
