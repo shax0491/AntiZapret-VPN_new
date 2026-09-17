@@ -734,6 +734,93 @@ cp -r /tmp/antizapret/setup/* /
 rm -rf /tmp/dnslib
 rm -rf /tmp/antizapret
 
+# Обфускация AmneziaWG 2.0: в шаблонах Jc/Jmin/Jmax/S1-S4/H1-H4 - одни и те же
+# магические числа на КАЖДОЙ установке AntiZapret (и одинаковые сразу у обоих
+# интерфейсов antizapret2/vpn2 на одном сервере) - тривиальный DPI-отпечаток
+# "это AntiZapret", а не случайная обфускация. Генерируем свой случайный набор
+# на каждый интерфейс отдельно (порт по мотивам пресета "medium" из
+# Kirito0098/az-awg2: H1-H4 - 4 непересекающихся диапазона >= 5, S1+56 != S2
+# иначе init/response совпадут по размеру, Jc/Jmin/Jmax - "мусорный поезд"
+# перед хендшейком). S1-S4/H1-H4 обязаны совпадать между сервером и клиентом -
+# поэтому пишем один и тот же набор в оба файла (server + client) одного
+# интерфейса.
+awg2_rnd() {
+	local min=$1 max=$2 r
+	r=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+	echo $(( min + r % (max - min + 1) ))
+}
+
+awg2_gen_h_ranges() {
+	local cap=2147483647 spread=500000
+	local attempt start end prev_end ok width
+	local -a starts
+	for attempt in $(seq 1 40); do
+		starts=()
+		for _ in 1 2 3 4; do
+			starts+=("$(awg2_rnd 5 $((cap - spread)))")
+		done
+		IFS=$'\n' starts=($(sort -n <<<"${starts[*]}")); unset IFS
+		ok=1
+		prev_end=0
+		AWG2_H_RANGES=()
+		for start in "${starts[@]}"; do
+			if (( start <= prev_end )); then ok=0; break; fi
+			width=$(awg2_rnd 1000 50000)
+			end=$(( start + width ))
+			(( end > cap )) && end=$cap
+			if (( end <= start || start <= prev_end )); then ok=0; break; fi
+			AWG2_H_RANGES+=("$start-$end")
+			prev_end=$end
+		done
+		if (( ok == 1 )) && (( ${#AWG2_H_RANGES[@]} == 4 )); then
+			return 0
+		fi
+	done
+	AWG2_H_RANGES=('10-20000' '40000-60000' '80000-100000' '120000-140000')
+}
+
+# Заполняет AWG2_JC/JMIN/JMAX/S1-S4/H1-H4 свежим случайным набором (пресет
+# "medium"). Вызывается отдельно на каждый интерфейс.
+awg2_gen_obfuscation_set() {
+	AWG2_JC=$(awg2_rnd 4 8)
+	AWG2_JMIN=8
+	AWG2_JMAX=120
+	AWG2_S1=$(awg2_rnd 30 120)
+	AWG2_S2=$(awg2_rnd 30 120)
+	while (( AWG2_S1 + 56 == AWG2_S2 )); do
+		AWG2_S2=$((AWG2_S2 + 1))
+	done
+	AWG2_S3=$(awg2_rnd 20 80)
+	AWG2_S4=$(awg2_rnd 4 16)
+	awg2_gen_h_ranges
+	AWG2_H1=${AWG2_H_RANGES[0]}
+	AWG2_H2=${AWG2_H_RANGES[1]}
+	AWG2_H3=${AWG2_H_RANGES[2]}
+	AWG2_H4=${AWG2_H_RANGES[3]}
+}
+
+awg2_apply_obfuscation() {
+	sed -i \
+		-e "s/^Jc = .*/Jc = $AWG2_JC/" \
+		-e "s/^Jmin = .*/Jmin = $AWG2_JMIN/" \
+		-e "s/^Jmax = .*/Jmax = $AWG2_JMAX/" \
+		-e "s/^S1 = .*/S1 = $AWG2_S1/" \
+		-e "s/^S2 = .*/S2 = $AWG2_S2/" \
+		-e "s/^S3 = .*/S3 = $AWG2_S3/" \
+		-e "s/^S4 = .*/S4 = $AWG2_S4/" \
+		-e "s/^H1 = .*/H1 = $AWG2_H1/" \
+		-e "s/^H2 = .*/H2 = $AWG2_H2/" \
+		-e "s/^H3 = .*/H3 = $AWG2_H3/" \
+		-e "s/^H4 = .*/H4 = $AWG2_H4/" \
+		"$@"
+}
+
+awg2_gen_obfuscation_set
+awg2_apply_obfuscation /etc/amneziawg/templates/antizapret2.conf /etc/amneziawg/templates/antizapret2-client.conf
+
+awg2_gen_obfuscation_set
+awg2_apply_obfuscation /etc/amneziawg/templates/vpn2.conf /etc/amneziawg/templates/vpn2-client.conf
+
 # Файл setup содержит приватные ключи (WireGuard/AmneziaWG/Proton) в открытом виде -
 # после chmod 644 {} + выше он мирового чтения, закрываем доступ только для root.
 chmod 600 /root/antizapret/setup
