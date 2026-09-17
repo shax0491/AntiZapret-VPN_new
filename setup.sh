@@ -92,7 +92,7 @@ sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null
 sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null
 
 until [[ "$RUN_SERVER_DIAGNOSTICS" =~ (y|n) ]]; do
-	read -rp 'Запустить полную диагностику сервера перед установкой? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
+	read -rp 'Run full server diagnostics before installation? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
 done
 if [[ "$RUN_SERVER_DIAGNOSTICS" == 'y' ]]; then
 	# Обычный `bash <(curl ...)` (process substitution) тут не годится: setup.sh
