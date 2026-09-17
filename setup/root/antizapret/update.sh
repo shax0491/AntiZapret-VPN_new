@@ -55,6 +55,8 @@ INCLUDE_HOSTS_PATH=download/include-hosts.txt
 EXCLUDE_HOSTS_LINK=$FORK_BASE/download/exclude-hosts.txt
 EXCLUDE_HOSTS_PATH=download/exclude-hosts.txt
 
+EXCLUDE_RU_HOSTS_LINK=$FORK_BASE/download/exclude-ru-hosts.txt
+
 REMOVE_HOSTS_LINK=$FORK_BASE/download/remove-hosts.txt.gz
 REMOVE_HOSTS_PATH=download/remove-hosts.txt.gz
 
@@ -214,9 +216,12 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK n || true
 
 	if [[ "$ROUTE_ALL" == 'y' ]]; then
-		download $EXCLUDE_HOSTS_PATH $EXCLUDE_HOSTS_LINK n || true
+		# ROUTE_ALL пускает весь трафик через тоннель, КРОМЕ российских доменов -
+		# поэтому exclude-hosts.txt должен заполняться списком российских доменов
+		# (exclude-ru-hosts.txt), а не обычным маленьким exclude-hosts.txt
+		download $EXCLUDE_HOSTS_PATH $EXCLUDE_RU_HOSTS_LINK n || true
 	else
-		printf '# НЕ РЕДАКТИРУЙТЕ ЭТОТ ФАЙЛ!' > $EXCLUDE_HOSTS_PATH
+		download $EXCLUDE_HOSTS_PATH $EXCLUDE_HOSTS_LINK n || true
 	fi
 
 	if [[ "$ANTIZAPRET_ADBLOCK" == 'y' || "$VPN_ADBLOCK" == 'y' ]]; then
