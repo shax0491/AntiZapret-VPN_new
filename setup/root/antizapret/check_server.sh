@@ -42,7 +42,7 @@ run_check() {
 	# Enter/Ctrl+C съедает байты из ещё не прочитанного скрипта, и внешний
 	# bash падает с "syntax error near unexpected token" на случайном месте.
 	echo
-	read -rp 'Enter - следующий тест, Ctrl+C - завершить диагностику: ' -e _ < /dev/tty || { echo; exit 130; }
+	read -rp 'Press Enter for the next test, Ctrl+C to stop diagnostics: ' -e _ < /dev/tty || { echo; exit 130; }
 }
 
 # Каждый инструмент ниже принудительно ограничен IPv4 (-4 / --ipv4, где
