@@ -447,7 +447,8 @@ SEGMENTATION_OFFLOAD="${SEGMENTATION_OFFLOAD:-off}"
 TXQUEUELEN="${TXQUEUELEN:-10000}"
 CPU_MASK=$(printf '%x' $(( (1 << $(nproc)) - 1 )))
 MTU="${MTU:-1420}"
-for dev in $(ls /sys/class/net); do
+for dev_path in /sys/class/net/*; do
+	dev="${dev_path##*/}"
 	[[ "$dev" == "lo" || "$dev" == *docker* ]] && continue
 	ethtool -K "$dev" tso "$SEGMENTATION_OFFLOAD" gso "$SEGMENTATION_OFFLOAD" gro "$SEGMENTATION_OFFLOAD"
 	if [[ -e "/sys/class/net/$dev/device" ]]; then

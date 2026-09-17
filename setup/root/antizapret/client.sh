@@ -600,7 +600,8 @@ backup(){
 restore(){
 	echo
 
-	if [[ -e /root/backup*.tar.gz ]]; then
+	BACKUP_FILES=(/root/backup*.tar.gz)
+	if (( ${#BACKUP_FILES[@]} > 0 )); then
 		rm -rf /root/easyrsa3
 		rm -rf /root/wireguard
 		rm -rf /root/amneziawg
