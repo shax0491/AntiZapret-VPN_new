@@ -211,17 +211,16 @@ if [[ "$ANTIZAPRET_WARP" != '1' || "$VPN_WARP" != '1' ]]; then
 	[[ "$WARP_PROVIDER_CHOICE" == '1' ]] && WARP_PROVIDER=proton || WARP_PROVIDER=cloudflare
 	echo
 
-	# Cloudflare рекомендует не превышать 1280 для самого WARP-туннеля (двойная
-	# инкапсуляция на их стороне чувствительна к фрагментации сильнее, чем
-	# обычный WireGuard) - тот же ping -M do probing, что и для основного
-	# тоннеля выше (DETECTED_PMTU), минус только обычный WG-оверхед (60 байт,
-	# не 80 - у WARP нет AmneziaWG-обфускации), но не выше 1280 в любом случае.
+	# Тот же ping -M do probing, что и для основного тоннеля выше
+	# (DETECTED_PMTU), минус обычный WG-оверхед (60 байт, не 80 - у WARP нет
+	# AmneziaWG-обфускации). 1280 - это безопасный минимум для WARP (почти
+	# никогда реально не нужен ниже), верхний предел - 1324.
 	WARP_MTU_DETECTED=$((DETECTED_PMTU - 60))
-	(( WARP_MTU_DETECTED > 1280 )) && WARP_MTU_DETECTED=1280
+	(( WARP_MTU_DETECTED > 1324 )) && WARP_MTU_DETECTED=1324
 	(( WARP_MTU_DETECTED < 576 )) && WARP_MTU_DETECTED=576
-	echo "Detected MTU=$WARP_MTU_DETECTED for the WARP tunnel itself (capped at 1280 per Cloudflare/Proton recommendation)"
-	until [[ "$WARP_MTU" =~ ^[0-9]+$ ]] && (( WARP_MTU >= 576 && WARP_MTU <= 1280 )); do
-		read -rp 'WARP tunnel MTU [576-1280]: ' -e -i "$WARP_MTU_DETECTED" WARP_MTU
+	echo "Detected MTU=$WARP_MTU_DETECTED for the WARP tunnel itself (capped at 1324)"
+	until [[ "$WARP_MTU" =~ ^[0-9]+$ ]] && (( WARP_MTU >= 576 && WARP_MTU <= 1324 )); do
+		read -rp 'WARP tunnel MTU [576-1324]: ' -e -i "$WARP_MTU_DETECTED" WARP_MTU
 	done
 	echo
 else
