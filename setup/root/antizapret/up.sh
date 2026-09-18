@@ -149,7 +149,7 @@ fi
 VPN_WARP_INTERFACE=warp-vpn
 VPN_WARP_PATH="/etc/wireguard/$VPN_WARP_INTERFACE.conf"
 
-if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' ]]; then
+if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' || "$VPN_WARP" == '4' ]]; then
 	set +e
 	echo "Starting $VPN_WARP_INTERFACE ($WARP_PROVIDER)..."
 
@@ -161,7 +161,7 @@ if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' ]]; then
 			VPN_WARP_ADDRESS="${PROTON_VPN_ADDRESS}/32"
 			VPN_WARP_IP="$PROTON_VPN_ADDRESS"
 
-			[[ "$VPN_WARP" == '3' ]] && VPN_FWMARK="fwmark 0x2 "
+			[[ "$VPN_WARP" == '3' || "$VPN_WARP" == '4' ]] && VPN_FWMARK="fwmark 0x2 "
 
 			echo "[Interface]
 PrivateKey = $PROTON_VPN_PRIVATE_KEY
@@ -210,7 +210,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 		fi
 		VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
 
-		[[ "$VPN_WARP" == '3' ]] && VPN_FWMARK="fwmark 0x2 "
+		[[ "$VPN_WARP" == '3' || "$VPN_WARP" == '4' ]] && VPN_FWMARK="fwmark 0x2 "
 
 		echo "[Interface]
 PrivateKey = $VPN_WARP_PRIVATE_KEY
