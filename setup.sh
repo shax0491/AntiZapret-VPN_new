@@ -782,9 +782,9 @@ awg2_gen_h_ranges() {
 # Заполняет AWG2_JC/JMIN/JMAX/S1-S4/H1-H4 свежим случайным набором (пресет
 # "medium"). Вызывается отдельно на каждый интерфейс.
 awg2_gen_obfuscation_set() {
-	AWG2_JC=$(awg2_rnd 4 8)
+	AWG2_JC=$(awg2_rnd 3 6)
 	AWG2_JMIN=8
-	AWG2_JMAX=120
+	AWG2_JMAX=80
 	AWG2_S1=$(awg2_rnd 30 120)
 	AWG2_S2=$(awg2_rnd 30 120)
 	while (( AWG2_S1 + 56 == AWG2_S2 )); do
