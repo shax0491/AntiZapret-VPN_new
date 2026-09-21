@@ -1258,6 +1258,8 @@ openhands.dev
 tailscale.com
 powersurf.eu
 xpenology.tech
+swaggerhub.com
+honor.com
 
 # Сертификаты
 #letsencrypt.org
