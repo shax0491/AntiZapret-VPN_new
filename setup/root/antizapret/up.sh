@@ -10,6 +10,14 @@ source setup
 
 WARP_PROVIDER="${WARP_PROVIDER:-cloudflare}"
 
+# Out IP protection
+if [[ -n "$ANTIZAPRET_OUT_IP" ]]; then
+	iptables -w -I INPUT 1 -d $ANTIZAPRET_OUT_IP -j DROP
+fi
+if [[ -n "$VPN_OUT_IP" && "$VPN_OUT_IP" != "$ANTIZAPRET_OUT_IP" ]]; then
+	iptables -w -I INPUT 1 -d $VPN_OUT_IP -j DROP
+fi
+
 if [[ -z "$DEFAULT_INTERFACE" ]]; then
 	DEFAULT_INTERFACE="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'dev \K\S+')"
 	if [[ -z "$DEFAULT_INTERFACE" ]]; then
