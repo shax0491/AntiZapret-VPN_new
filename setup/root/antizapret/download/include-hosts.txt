@@ -925,7 +925,7 @@ map-care.com
 b-cdn.net
 list-manage.com
 zappos.com
-xmeye.net
+#xmeye.net
 cardhaus.com
 drivethrurpg.com
 dubizzle.com
@@ -1264,6 +1264,7 @@ accounts.chaos.com
 boxofficemojo.com
 wooting.io
 fextralife.com
+cloudsmith.io
 
 # Сертификаты
 #letsencrypt.org
