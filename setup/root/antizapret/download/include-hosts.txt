@@ -60,7 +60,7 @@ platform.activestate.com
 login.amd.com
 bits.avcdn.net
 #forums.chaos.com
-try.chaos.com
+#try.chaos.com
 #cisco.com
 id.cisco.com
 clamav.net
@@ -223,6 +223,7 @@ weather.com
 #gemini.google.com
 claude.ai
 claude.com
+claudeusercontent.com
 anthropic.com
 chatfuel.com
 notion.so
@@ -925,7 +926,7 @@ map-care.com
 b-cdn.net
 list-manage.com
 zappos.com
-xmeye.net
+#xmeye.net
 cardhaus.com
 drivethrurpg.com
 dubizzle.com
@@ -1093,7 +1094,7 @@ virtualhere.com
 socialchess.com
 esri.com
 printhelp.info
-leatherman.com
+#leatherman.com
 shop.eminem.com
 yootheme.com
 webull.com
@@ -1255,6 +1256,19 @@ decagames.com
 bulkhead.com
 weex.com
 openhands.dev
+tailscale.com
+powersurf.eu
+xpenology.tech
+swaggerhub.com
+#honor.com
+accounts.chaos.com
+boxofficemojo.com
+wooting.io
+fextralife.com
+cloudsmith.io
+notion.com
+mtgcardbuilder.com
+zerro.app
 
 # Сертификаты
 #letsencrypt.org
