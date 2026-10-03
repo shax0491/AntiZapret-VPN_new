@@ -413,6 +413,9 @@ PresharedKey = ${CLIENT_PRESHARED_KEY}
 AllowedIPs = ${CLIENT_IP}/32
 " >> "$AWG2/antizapret2.conf"
 		awg syncconf antizapret2 <(awg-quick strip "$AWG2/antizapret2.conf" 2>/dev/null) &>/dev/null || true
+		# syncconf adds the new peer live but does not re-run PostUp — pin its
+		# route explicitly too (see awg2-fix-routes.sh).
+		/root/antizapret/awg2-fix-routes.sh antizapret2 || true
 	fi
 
 	render "$AWG2/templates/antizapret2-client.conf" > "/root/antizapret/client/amneziawg2/antizapret/antizapret2-$FILE_NAME-am2.conf"
@@ -447,6 +450,7 @@ PresharedKey = ${CLIENT_PRESHARED_KEY}
 AllowedIPs = ${CLIENT_IP}/32
 " >> "$AWG2/vpn2.conf"
 		awg syncconf vpn2 <(awg-quick strip "$AWG2/vpn2.conf" 2>/dev/null) &>/dev/null || true
+		/root/antizapret/awg2-fix-routes.sh vpn2 || true
 	fi
 
 	render "$AWG2/templates/vpn2-client.conf" > "/root/antizapret/client/amneziawg2/vpn/vpn2-$FILE_NAME-am2.conf"
