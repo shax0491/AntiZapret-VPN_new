@@ -202,6 +202,22 @@ nano /root/antizapret/setup
 ```
 > `doall.sh` для этого **не подходит** — он обновляет только CIDR-списки/маршруты и не поднимает WARP-интерфейсы заново. При `WARP_PROVIDER=cloudflare` `up.sh` сам сгенерирует ключи и зарегистрирует новый анонимный WARP-аккаунт через открытый API Cloudflare — ничего вводить не нужно. **Важно:** этот сгенерированный ключ не сохраняется в файл `setup`, поэтому при каждом следующем запуске `up.sh` (в том числе при перезагрузке сервера) регистрируется новый анонимный аккаунт заново, и exit-IP через Cloudflare WARP меняется. У Proton IP постоянный, так как ключ вводится вручную один раз.
 
+**7в. Сменить режим WARP (None/All/Domain/Custom) после установки**
+```bash
+nano /root/antizapret/setup
+```
+> Поменяйте `ANTIZAPRET_WARP=` и/или `VPN_WARP=` на нужное значение: `1` — None, `2` — All (весь трафик scope), `3` — Domain (домены АнтиЗапрета + `include-warp-hosts.txt`), `4` — Custom (только `include-warp-hosts.txt`). После правки примените:
+```bash
+systemctl restart antizapret
+```
+> **И `doall.sh`, и просто `up.sh` для этого не подходят.** `doall.sh` режим WARP не трогает вообще (см. выше). А одного `up.sh` (без перезапуска сервиса) здесь недостаточно **в отличие от пункта 7б** — `up.sh` только добавляет правила iptables (`-A`/`-I`), но никогда не удаляет старые, а при смене режима набор правил меняется по форме (например, безусловный `MASQUERADE`/`SNAT` в режиме "All" vs правила с `-m mark --mark 0x2` в режимах "Domain"/"Custom"). Без предварительного `down.sh` старые правила предыдущего режима останутся висеть рядом с новыми. `systemctl restart antizapret` сам вызывает `down.sh` → `up.sh` по порядку (это прописано в `ExecStopPost`/`ExecStartPre` юнита `antizapret.service`) — только так гарантированно чисто. На живых клиентов это не влияет: `down.sh` останавливает только WARP-плечи (`warp-antizapret`/`warp-vpn`), сами туннели OpenVPN/WireGuard/AmneziaWG — отдельные systemd-юниты, их `antizapret.service` не трогает.
+>
+> Проверить, что применилось:
+> ```bash
+> iptables -t nat -S POSTROUTING | grep warp
+> ```
+> В режиме "All" строки будут без `-m mark --mark 0x2` (весь трафик идёт через WARP); в режимах "Domain"/"Custom" — с этим флагом (только помеченные домены).
+
 **8. Автоподбор эндпоинта Cloudflare WARP (только для провайдера Cloudflare)**
 Если выбран `WARP_PROVIDER=cloudflare`, systemd-таймер `warpscout-refresh.timer` периодически проверяет через [warpscout](https://github.com/vernette/warpscout), не определяется ли текущий эндпоинт `warp-antizapret`/`warp-vpn` сервисами вроде YouTube как Россия (поле `"GL"` в ответе youtube.com), и если да — подбирает и переключает на другой эндпоинт "на лету" (`wg set`, без разрыва клиентских сессий). Проверить состояние и лог:
 ```bash
