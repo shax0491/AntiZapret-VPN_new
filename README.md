@@ -402,3 +402,25 @@ GeoHide (пункт "8) GeoHide \*\*" для AntiZapret VPN и "9) GeoHide \*\*"
 bash <(wget -qO- https://censorcheck.vrnt.xyz) --mode dpi
 ```
 На сам VPN-сервер он не устанавливается и не запускается автоматически: сервер и так расположен вне зоны блокировок, поэтому результат проверки на нём не даёт полезной информации о том, что видит реальный клиент.
+
+## AmneziaWG 3.0
+
+Отдельный интерфейс `awg1` рядом с AmneziaWG 2.0 (`antizapret2`, `vpn2`) и AmneziaWG 1.5 (`antizapret`, `vpn`). Не влияет на них.
+
+- Userspace `amneziawg-go` + `awg` 3.x, UDP-порт **51821**, MTU 1280.
+- Две подсети на одном интерфейсе:
+  - **10.9.0.0/24 — антизапрет.** Через туннель идут только адреса из списка маршрутов, остальное напрямую. DNS — 127.1.1.1 (антизапрет).
+  - **10.9.1.0/24 — полный VPN.** Весь трафик клиента (`0.0.0.0/0`) через сервер, DNS — 127.2.2.2.
+- Конфиг сервера: `/etc/amnezia/amneziawg3/awg1.conf` (параметры обфускации 3.x, `HeaderProtectionKey`). Список маршрутов антизапрета для клиентов: `/etc/amnezia/amneziawg3/split-allowed.txt` (берётся из шаблона клиента AWG 2.0 при установке).
+- Systemd: `awg3@awg1` (включается установкой). Скрипты: `/usr/local/sbin/awg3-up.sh`, `/usr/local/sbin/awg3-rules.sh`.
+- Правила файрвола для обеих подсетей: DNAT DNS, метка соединения и DROP по набору `antizapret-forward` (только для антизапрета), подмена фиктивных адресов `ANTIZAPRET-MAPPING`, MSS-clamp, masquerade через выходной интерфейс.
+
+Клиентов создаёт панель (вкладка «AmneziaWG 3.0»: режим антизапрет или полный VPN) через агент ноды. Клиентские конфиги, клиенты с режимами и ключи — в панели, на ноде в `/etc/amnezia/amneziawg3/clients.json` (права 600).
+
+Проверка на ноде:
+```
+systemctl status awg3@awg1
+awg show awg1
+iptables -t nat -S PREROUTING | grep 10.9.
+```
+Клиентские приложения AmneziaWG 2.0 (Android, Windows) конфиги 3.x не принимают. Сейчас AWG 3.0 используют роутеры (например, OpenWrt с amneziawg 3.x или KeeneticOS 5.2+).
