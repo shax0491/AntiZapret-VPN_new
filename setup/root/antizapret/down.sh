@@ -143,6 +143,8 @@ iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 508 -j RED
 # WireGuard/AmneziaWG port redirection for backup connections
 iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 540 -j REDIRECT --to-ports 51443
 iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 580 -j REDIRECT --to-ports 51080
+iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 544 -j REDIRECT --to-ports 53443
+iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 584 -j REDIRECT --to-ports 53080
 # AmneziaWG redirection ports to WireGuard
 iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 52080 -j REDIRECT --to-ports 51080
 iptables -w -t nat -D PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 52443 -j REDIRECT --to-ports 51443
