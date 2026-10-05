@@ -410,6 +410,8 @@ fi
 if [[ "$WIREGUARD_BACKUP" == 'y' ]]; then
 	iptables -w -t nat -A PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 540 -j REDIRECT --to-ports 51443
 	iptables -w -t nat -A PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 580 -j REDIRECT --to-ports 51080
+	iptables -w -t nat -A PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 544 -j REDIRECT --to-ports 53443
+	iptables -w -t nat -A PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 584 -j REDIRECT --to-ports 53080
 fi
 iptables -w -t nat -A PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 52080 -j REDIRECT --to-ports 51080
 iptables -w -t nat -A PREROUTING -i $DEFAULT_INTERFACE -p udp --dport 52443 -j REDIRECT --to-ports 51443

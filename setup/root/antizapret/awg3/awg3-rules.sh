@@ -8,7 +8,9 @@ F=10.9.1.0/24
 OUT=$(ip route show default | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
 add(){ t=$1; shift; iptables -w -t $t -C "$@" 2>/dev/null || iptables -w -t $t -A "$@"; }
 del(){ t=$1; shift; while iptables -w -t $t -C "$@" 2>/dev/null; do iptables -w -t $t -D "$@"; done; }
+# client ports 51900-51999 (random per client, see awg3_clients.py) -> ListenPort 51821
 if [ "$1" = "down" ]; then
+  del nat PREROUTING -i $OUT -p udp --dport 51900:51999 -j REDIRECT --to-ports 51821
   del nat PREROUTING -s $S -p udp --dport 53 -j DNAT --to-destination 127.1.1.1
   del nat PREROUTING -s $S -p tcp --dport 53 -j DNAT --to-destination 127.1.1.1
   del nat PREROUTING -s $S ! -d 198.18.0.0/15 -j CONNMARK --set-xmark 0x1/0xffffffff
@@ -23,6 +25,7 @@ if [ "$1" = "down" ]; then
   del nat POSTROUTING -s $F -o $OUT -j MASQUERADE
   exit 0
 fi
+add nat PREROUTING -i $OUT -p udp --dport 51900:51999 -j REDIRECT --to-ports 51821
 # split
 add nat PREROUTING -s $S -p udp --dport 53 -j DNAT --to-destination 127.1.1.1
 add nat PREROUTING -s $S -p tcp --dport 53 -j DNAT --to-destination 127.1.1.1
