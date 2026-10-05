@@ -160,6 +160,11 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	# должен слать эти маршруты именно на шлюз своего протокола, иначе они уйдут не в тот туннель
 	echo -e "route ADD DNS_IP_1 MASK 255.255.255.255 $IP.29.9.1\nroute ADD DNS_IP_2 MASK 255.255.255.255 $IP.29.9.1\nroute ADD $FAKE_IP.0.0 MASK 255.254.0.0 $IP.29.9.1" > result/keenetic-amneziawg2-routes.txt
 	echo "/ip route add dst-address=$FAKE_IP.0.0/15 gateway=$IP.29.9.1 distance=1 comment=\"antizapret-amneziawg2\"" > result/mikrotik-amneziawg2-routes.txt
+	# AmneziaWG 3.0 - интерфейс awg1, антизапрет-подсеть 10.9.0.0/24, шлюз сервера 10.9.0.1
+	echo -e "route ADD DNS_IP_1 MASK 255.255.255.255 10.9.0.1
+route ADD DNS_IP_2 MASK 255.255.255.255 10.9.0.1
+route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-routes.txt
+	echo "/ip route add dst-address=$FAKE_IP.0.0/15 gateway=10.9.0.1 distance=1 comment=\"antizapret-amneziawg3\"" > result/mikrotik-amneziawg3-routes.txt
 	while read -r cidr; do
 		NET="$(echo "$cidr" | awk -F '/' '{print $1}')"
 		MASK="$(sipcalc -- "$cidr" | awk '/Network mask/ {print $4; exit;}')"
@@ -169,6 +174,8 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 		echo "/ip route add dst-address=$cidr gateway=$IP.29.8.1 distance=1 comment=\"antizapret-wireguard\"" >> result/mikrotik-wireguard-routes.txt
 		echo "route ADD $NET MASK $MASK $IP.29.9.1" >> result/keenetic-amneziawg2-routes.txt
 		echo "/ip route add dst-address=$cidr gateway=$IP.29.9.1 distance=1 comment=\"antizapret-amneziawg2\"" >> result/mikrotik-amneziawg2-routes.txt
+		echo "route ADD $NET MASK $MASK 10.9.0.1" >> result/keenetic-amneziawg3-routes.txt
+		echo "/ip route add dst-address=$cidr gateway=10.9.0.1 distance=1 comment=\"antizapret-amneziawg3\"" >> result/mikrotik-amneziawg3-routes.txt
 	done < result/route-ips.txt
 
 	mkdir -p /etc/openvpn/server/ccd
