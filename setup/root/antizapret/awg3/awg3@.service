@@ -1,0 +1,13 @@
+[Unit]
+Description=AmneziaWG 3.0 interface %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/awg3-up.sh %i
+ExecStop=/usr/local/sbin/awg3-up.sh down %i
+
+[Install]
+WantedBy=multi-user.target
