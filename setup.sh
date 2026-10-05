@@ -918,6 +918,16 @@ if [[ "$WIREGUARD_ENABLE" == 'y' ]]; then
 # AmneziaWG 3.0 (awg1, userspace amneziawg-go): антизапрет 10.9.0.0/24 и полный VPN 10.9.1.0/24 на одном интерфейсе.
 # Не трогает AmneziaWG 2.0 (antizapret2/vpn2). Панель управляет через агент ноды (см. README, раздел AmneziaWG 3.0).
 install -d -m 700 /etc/amnezia/amneziawg3
+# MTU AWG 3.0 считается как у остальных туннелей, но с поправкой на оверхед AWG 3.0: путь до сервера
+# (DETECTED_PMTU, см. выше) минус 60 байт WG-заголовка и S4 (паддинг транспортных пакетов), не ниже 1280 и не выше 1420.
+AWG3_S4=12
+AWG3_MTU=$(( DETECTED_PMTU - 60 - AWG3_S4 ))
+(( AWG3_MTU < 1280 )) && AWG3_MTU=1280
+(( AWG3_MTU > 1420 )) && AWG3_MTU=1420
+if [[ ! -s /etc/amnezia/amneziawg3/mtu ]]; then
+	echo "$AWG3_MTU" > /etc/amnezia/amneziawg3/mtu
+	chmod 644 /etc/amnezia/amneziawg3/mtu
+fi
 if [[ ! -f /etc/amnezia/amneziawg3/awg1.conf ]]; then
 	awg genkey > /etc/amnezia/amneziawg3/server.key
 	awg pubkey < /etc/amnezia/amneziawg3/server.key > /etc/amnezia/amneziawg3/server.pub
@@ -929,14 +939,14 @@ if [[ ! -f /etc/amnezia/amneziawg3/awg1.conf ]]; then
 PrivateKey = $(cat /etc/amnezia/amneziawg3/server.key)
 Address = 10.9.0.1/24
 ListenPort = 51821
-MTU = 1280
+MTU = ${AWG3_MTU}
 Jc = 4
 Jmin = 8
 Jmax = 80
 S1 = ${AWG3_S1}
 S2 = ${AWG3_S2}
 S3 = 12
-S4 = 12
+S4 = ${AWG3_S4}
 H1 = ${AWG3_H_BASE}-$((AWG3_H_BASE + 1000))
 H2 = $((AWG3_H_BASE + 2000))-$((AWG3_H_BASE + 3000))
 H3 = $((AWG3_H_BASE + 4000))-$((AWG3_H_BASE + 5000))
