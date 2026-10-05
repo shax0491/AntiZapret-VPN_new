@@ -945,9 +945,12 @@ HeaderProtectionKey = ${AWG3_HPK}
 EOF3
 	chmod 600 /etc/amnezia/amneziawg3/awg1.conf /etc/amnezia/amneziawg3/server.key
 fi
-if [[ ! -s /etc/amnezia/amneziawg3/split-allowed.txt ]]; then
-	grep -m1 '^AllowedIPs' /etc/amneziawg/templates/antizapret2-client.conf | cut -d= -f2- | tr -d ' ' | tr ',' '
-' | grep -v '^$' > /etc/amnezia/amneziawg3/split-allowed.txt || true
+# Адрес для клиентов AWG 3.0 - тот же, что в конфигах AWG 2.0: WIREGUARD_HOST, иначе публичный IP.
+# Список маршрутов агент берёт из /etc/wireguard/ips (тот же файл, что у AWG 2.0), копию не создаём.
+AWG3_HOST="${WIREGUARD_HOST:-$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')}"
+if [[ -n "$AWG3_HOST" ]]; then
+	printf '%s\n' "$AWG3_HOST" > /etc/amnezia/amneziawg3/server_host
+	chmod 644 /etc/amnezia/amneziawg3/server_host
 fi
 install -m 755 /tmp/antizapret/setup/root/antizapret/awg3/awg3-rules.sh /usr/local/sbin/awg3-rules.sh
 install -m 755 /tmp/antizapret/setup/root/antizapret/awg3/awg3-up.sh /usr/local/sbin/awg3-up.sh
