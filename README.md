@@ -90,7 +90,7 @@ AntiZapret VPN реализует технологию раздельного т
 - Две подсети на одном интерфейсе:
   - **10.9.0.0/24 — антизапрет.** Через туннель идут только адреса из списка маршрутов, остальное напрямую. DNS — 127.1.1.1 (антизапрет).
   - **10.9.1.0/24 — полный VPN.** Весь трафик клиента (`0.0.0.0/0`) через сервер, DNS — 127.2.2.2.
-- Конфиг сервера: `/etc/amnezia/amneziawg3/awg1.conf` (параметры обфускации 3.x, `HeaderProtectionKey`). Список маршрутов антизапрета для клиентов: `/etc/amnezia/amneziawg3/split-allowed.txt` (берётся из шаблона клиента AWG 2.0 при установке).
+- Конфиг сервера: `/etc/amnezia/amneziawg3/awg1.conf` (параметры обфускации 3.x, `HeaderProtectionKey`). Адрес для клиентов: `/etc/amnezia/amneziawg3/server_host` (`WIREGUARD_HOST` или публичный IP, пишет `setup.sh`). Список маршрутов антизапрета тот же, что у AWG 2.0: `/etc/wireguard/ips`.
 - Systemd: `awg3@awg1` (включается установкой). Скрипты: `/usr/local/sbin/awg3-up.sh`, `/usr/local/sbin/awg3-rules.sh`.
 - Правила файрвола для обеих подсетей: DNAT DNS, метка соединения и DROP по набору `antizapret-forward` (только для антизапрета), подмена фиктивных адресов `ANTIZAPRET-MAPPING`, MSS-clamp, masquerade через выходной интерфейс.
 
