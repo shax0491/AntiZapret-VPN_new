@@ -415,7 +415,7 @@ bash <(wget -qO- https://censorcheck.vrnt.xyz) --mode dpi
 - Systemd: `awg3@awg1` (включается установкой). Скрипты: `/usr/local/sbin/awg3-up.sh`, `/usr/local/sbin/awg3-rules.sh`.
 - Правила файрвола для обеих подсетей: DNAT DNS, метка соединения и DROP по набору `antizapret-forward` (только для антизапрета), подмена фиктивных адресов `ANTIZAPRET-MAPPING`, MSS-clamp, masquerade через выходной интерфейс.
 
-Клиентов создаёт панель (вкладка «AmneziaWG 3.0»: режим антизапрет или полный VPN) через агент ноды. Клиентские конфиги, клиенты с режимами и ключи — в панели, на ноде в `/etc/amnezia/amneziawg3/clients.json` (права 600).
+Клиентов создаёт панель на странице «Клиенты» (протокол «AmneziaWG 3.0», режим антизапрет или полный VPN) через агент ноды. Готовые списки маршрутов для роутеров (Keenetic, MikroTik) — `keenetic-amneziawg3-routes.txt` и `mikrotik-amneziawg3-routes.txt` в `result/`, генерируются `parse.sh`. Клиентские конфиги, клиенты с режимами и ключи — в панели, на ноде в `/etc/amnezia/amneziawg3/clients.json` (права 600).
 
 Проверка на ноде:
 ```
