@@ -914,6 +914,47 @@ if [[ "$WIREGUARD_ENABLE" == 'y' ]]; then
 	systemctl enable amneziawg@vpn2
 	systemctl restart amneziawg@antizapret2
 	systemctl restart amneziawg@vpn2
+
+# AmneziaWG 3.0 (awg1, userspace amneziawg-go): антизапрет 10.9.0.0/24 и полный VPN 10.9.1.0/24 на одном интерфейсе.
+# Не трогает AmneziaWG 2.0 (antizapret2/vpn2). Панель управляет через агент ноды (см. README, раздел AmneziaWG 3.0).
+install -d -m 700 /etc/amnezia/amneziawg3
+if [[ ! -f /etc/amnezia/amneziawg3/awg1.conf ]]; then
+	awg genkey > /etc/amnezia/amneziawg3/server.key
+	awg pubkey < /etc/amnezia/amneziawg3/server.key > /etc/amnezia/amneziawg3/server.pub
+	AWG3_HPK="$(head -c 32 /dev/urandom | base64)"
+	AWG3_S1=$((20 + RANDOM % 40)); AWG3_S2=$((20 + RANDOM % 40))
+	AWG3_H_BASE=$((RANDOM * 10 + 1000))
+	cat > /etc/amnezia/amneziawg3/awg1.conf <<EOF3
+[Interface]
+PrivateKey = $(cat /etc/amnezia/amneziawg3/server.key)
+Address = 10.9.0.1/24
+ListenPort = 51821
+MTU = 1280
+Jc = 4
+Jmin = 8
+Jmax = 80
+S1 = ${AWG3_S1}
+S2 = ${AWG3_S2}
+S3 = 12
+S4 = 12
+H1 = ${AWG3_H_BASE}-$((AWG3_H_BASE + 1000))
+H2 = $((AWG3_H_BASE + 2000))-$((AWG3_H_BASE + 3000))
+H3 = $((AWG3_H_BASE + 4000))-$((AWG3_H_BASE + 5000))
+H4 = $((AWG3_H_BASE + 6000))-$((AWG3_H_BASE + 7000))
+HeaderProtectionKey = ${AWG3_HPK}
+EOF3
+	chmod 600 /etc/amnezia/amneziawg3/awg1.conf /etc/amnezia/amneziawg3/server.key
+fi
+if [[ ! -s /etc/amnezia/amneziawg3/split-allowed.txt ]]; then
+	grep -m1 '^AllowedIPs' /etc/amneziawg/templates/antizapret2-client.conf | cut -d= -f2- | tr -d ' ' | tr ',' '
+' | grep -v '^$' > /etc/amnezia/amneziawg3/split-allowed.txt || true
+fi
+install -m 755 /tmp/antizapret/setup/root/antizapret/awg3/awg3-rules.sh /usr/local/sbin/awg3-rules.sh
+install -m 755 /tmp/antizapret/setup/root/antizapret/awg3/awg3-up.sh /usr/local/sbin/awg3-up.sh
+install -m 644 /tmp/antizapret/setup/root/antizapret/awg3/awg3@.service /etc/systemd/system/awg3@.service
+systemctl daemon-reload
+systemctl enable awg3@awg1
+systemctl restart awg3@awg1
 fi
 
 ERRORS=
