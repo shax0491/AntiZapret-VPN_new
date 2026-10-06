@@ -382,9 +382,16 @@ iptables -w -I INPUT 2 -i $DEFAULT_INTERFACE -m set --match-set antizapret-deny 
 # а эти ICMP часто режутся по пути (провайдер/ТСПУ) - PMTUD "чернеет", и тяжёлые пакеты в
 # туннеле молча теряются вместо фрагментации. Вместо этого явно клэмпим MSS под MTU,
 # определённый в setup.sh пробингом (ping -M do к 1.1.1.1) минус оверхед туннеля.
-VPN_MSS=$(( ${MTU:-1420} - 40 ))
-iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
-iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
+VPN_MSS="${AWG_MSS:-1240}"
+# старые копии правила 1380 (раньше добавлялись без проверки при каждом запуске) - убираем все
+while iptables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1380 2>/dev/null; do :; done
+while iptables -w -t mangle -D OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1380 2>/dev/null; do :; done
+iptables -w -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS" 2>/dev/null || iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
+iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS" 2>/dev/null || iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
+# интерфейсы AWG 2.0 - MTU 1280 (AWG 3.1 получает свой MTU в awg3-up.sh)
+for dev in antizapret2 vpn2; do
+	[[ -e "/sys/class/net/$dev" ]] && ip link set "$dev" mtu 1280 || true
+done
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
