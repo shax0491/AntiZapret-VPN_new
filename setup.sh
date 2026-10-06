@@ -918,12 +918,9 @@ if [[ "$WIREGUARD_ENABLE" == 'y' ]]; then
 # AmneziaWG 3.0 (awg1, userspace amneziawg-go): антизапрет 10.9.0.0/24 и полный VPN 10.9.1.0/24 на одном интерфейсе.
 # Не трогает AmneziaWG 2.0 (antizapret2/vpn2). Панель управляет через агент ноды (см. README, раздел AmneziaWG 3.0).
 install -d -m 700 /etc/amnezia/amneziawg3
-# MTU AWG 3.0 считается как у остальных туннелей, но с поправкой на оверхед AWG 3.0: путь до сервера
-# (DETECTED_PMTU, см. выше) минус 60 байт WG-заголовка и S4 (паддинг транспортных пакетов), не ниже 1280 и не выше 1420.
+# MTU AmneziaWG 3.1 по умолчанию 1280: пакеты растут из-за паддинга транспорта, при большем MTU соединение фрагментируется и рвётся.
 AWG3_S4=12
-AWG3_MTU=$(( DETECTED_PMTU - 60 - AWG3_S4 ))
-(( AWG3_MTU < 1280 )) && AWG3_MTU=1280
-(( AWG3_MTU > 1420 )) && AWG3_MTU=1420
+AWG3_MTU=1280
 if [[ ! -s /etc/amnezia/amneziawg3/mtu ]]; then
 	echo "$AWG3_MTU" > /etc/amnezia/amneziawg3/mtu
 	chmod 644 /etc/amnezia/amneziawg3/mtu
@@ -952,6 +949,9 @@ H2 = $((AWG3_H_BASE + 2000))-$((AWG3_H_BASE + 3000))
 H3 = $((AWG3_H_BASE + 4000))-$((AWG3_H_BASE + 5000))
 H4 = $((AWG3_H_BASE + 6000))-$((AWG3_H_BASE + 7000))
 HeaderProtectionKey = ${AWG3_HPK}
+ContentPaddingAddition = 2
+RandomTrailers = true
+DisableCookies = true
 EOF3
 	chmod 600 /etc/amnezia/amneziawg3/awg1.conf /etc/amnezia/amneziawg3/server.key
 fi
