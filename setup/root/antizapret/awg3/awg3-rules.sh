@@ -20,6 +20,9 @@ add(){ t=$1; shift; iptables -w -t $t -C "$@" 2>/dev/null || iptables -w -t $t -
 del(){ t=$1; shift; while iptables -w -t $t -C "$@" 2>/dev/null; do iptables -w -t $t -D "$@"; done; }
 rule_add(){ ip rule del "$@" 2>/dev/null; ip rule add "$@" || true; }
 rule_del(){ ip rule del "$@" 2>/dev/null || true; }
+# удаляет ВСЕ nat-правила подсети на warp-интерфейс, какой бы адрес в них ни стоял
+# (после смены ключа Proton адрес другой, и удаление по "--to-source <новый адрес>" старое правило не находило)
+purge_warp_nat(){ iptables -w -t nat -S POSTROUTING | grep -F -- "-s $1 " | grep -F -- "-o $2 " | sed 's/^-A /-D /' | while read -r r; do iptables -w -t nat $r; done; }
 # SNAT на WARP-интерфейс: адрес провайдера, либо MASQUERADE если адрес не задан (как в up.sh)
 warp_snat(){ src=$1; iface=$2; ip=$3; shift 3; if [ -z "$ip" ]; then add nat POSTROUTING -s $src "$@" -o $iface -j MASQUERADE; else add nat POSTROUTING -s $src "$@" -o $iface -j SNAT --to-source $ip; fi; }
 # client ports 51900-51999 (random per client, see awg3_clients.py) -> ListenPort 51821
@@ -33,10 +36,7 @@ if [ "$1" = "down" ]; then
   del mangle FORWARD -s $S -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
   del mangle PREROUTING -s $S -d 198.18.0.0/15 -j ANTIZAPRET-WARP
   del nat POSTROUTING -s $S -o $OUT -j MASQUERADE
-  del nat POSTROUTING -s $S -m mark --mark 0x2 -o warp-antizapret -j MASQUERADE
-  del nat POSTROUTING -s $S -m mark --mark 0x2 -o warp-antizapret -j SNAT --to-source "$AZ_WARP_IP"
-  del nat POSTROUTING -s $S -o warp-antizapret -j MASQUERADE
-  del nat POSTROUTING -s $S -o warp-antizapret -j SNAT --to-source "$AZ_WARP_IP"
+  purge_warp_nat $S warp-antizapret
   rule_del from $S to $S lookup main priority 5000
   rule_del from $S lookup 13335 priority 10000
   rule_del from $S fwmark 0x2 lookup 13335 priority 10000
@@ -45,8 +45,7 @@ if [ "$1" = "down" ]; then
   del nat PREROUTING -s $F -d 198.18.0.0/15 -j ANTIZAPRET-MAPPING
   del mangle FORWARD -s $F -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
   del nat POSTROUTING -s $F -o $OUT -j MASQUERADE
-  del nat POSTROUTING -s $F -o warp-vpn -j MASQUERADE
-  del nat POSTROUTING -s $F -o warp-vpn -j SNAT --to-source "$VPN_WARP_IP"
+  purge_warp_nat $F warp-vpn
   rule_del from $F to $F lookup main priority 5000
   rule_del from $F lookup 13336 priority 10000
   exit 0
@@ -65,10 +64,7 @@ rule_add from $S to $S lookup main priority 5000
 # сначала убираем WARP-правила любого режима: после смены ANTIZAPRET_WARP старые остались бы рядом с новыми
 rule_del from $S lookup 13335 priority 10000
 rule_del from $S fwmark 0x2 lookup 13335 priority 10000
-del nat POSTROUTING -s $S -o warp-antizapret -j MASQUERADE
-del nat POSTROUTING -s $S -o warp-antizapret -j SNAT --to-source "$AZ_WARP_IP"
-del nat POSTROUTING -s $S -m mark --mark 0x2 -o warp-antizapret -j MASQUERADE
-del nat POSTROUTING -s $S -m mark --mark 0x2 -o warp-antizapret -j SNAT --to-source "$AZ_WARP_IP"
+purge_warp_nat $S warp-antizapret
 del mangle PREROUTING -s $S -d 198.18.0.0/15 -j ANTIZAPRET-WARP
 case "$ANTIZAPRET_WARP" in
   2)
@@ -90,8 +86,7 @@ add nat POSTROUTING -s $F -o $OUT -j MASQUERADE
 # policy routing and WARP for full: same as 10.28 in up.sh (VPN_WARP 2 = all)
 rule_add from $F to $F lookup main priority 5000
 rule_del from $F lookup 13336 priority 10000
-del nat POSTROUTING -s $F -o warp-vpn -j MASQUERADE
-del nat POSTROUTING -s $F -o warp-vpn -j SNAT --to-source "$VPN_WARP_IP"
+purge_warp_nat $F warp-vpn
 if [ "$VPN_WARP" = "2" ]; then
   rule_add from $F lookup 13336 priority 10000
   warp_snat $F warp-vpn "$VPN_WARP_IP"
