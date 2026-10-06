@@ -64,7 +64,7 @@ AntiZapret VPN реализует технологию раздельного т
 * При ошибке загрузки файла подключения необходимо сократить длину имени файла до 32 (Windows) или 15 (Linux/Android/iOS) символов и удалить скобки.
 * **VPN-клиенты:** AmneziaWG (Windows), AmneziaWG (Android), AmneziaWG (Apple).
 
-### AmneziaWG 2.0 (файлы *-am2.conf)
+### AmneziaWG 2 (файлы *-am2.conf)
 * Встроен нативно в основной `setup.sh` — отдельно ничего ставить не нужно, `amneziawg-go` и `amneziawg-tools` компилируются вместе с остальным VPN.
 * Использует собственный протокол обфускации с маскировкой первого пакета (**I1/I2**) под TLS ClientHello, QUIC Initial или SIP INVITE — тип выбирается один раз при установке.
 * Поддерживается подключение по UDP, используются порты `53443` (AntiZapret) и `53080` (полный VPN), подсети `10.29.9.0/24` и `10.28.9.0/24`.
@@ -75,21 +75,21 @@ AntiZapret VPN реализует технологию раздельного т
 * Параметры обфускации (`Jc`/`Jmin`/`Jmax`/`S1`-`S4`/`H1`-`H4`) генерируются `setup.sh` случайно при каждой установке — отдельно для AntiZapret и для полного VPN — вместо одних и тех же чисел на каждом сервере (иначе это тривиальный DPI-отпечаток «это AntiZapret», а не обфускация). Значения смотрите в `[Interface]` уже установленного `*-am2.conf` — они не документируются здесь, потому что разные на каждом сервере.
 * **VPN-клиенты:** AmneziaWG (Windows), AmneziaWG (Android), AmneziaWG (Apple).
 
-### AmneziaWG 3.1 (файлы awg3-*.conf)
+### AmneziaWG 3 (файлы awg3-*.conf)
 
-Отдельный интерфейс `awg1` рядом с AmneziaWG 2.0 (`antizapret2`, `vpn2`) и AmneziaWG 1.5 (`antizapret`, `vpn`). Не влияет на них.
+Отдельный интерфейс `awg1` рядом с AmneziaWG 2 (`antizapret2`, `vpn2`) и AmneziaWG 1.5 (`antizapret`, `vpn`). Не влияет на них.
 
 - Userspace `amneziawg-go` + `awg` 3.x, UDP-порт **51821**. MTU считается при установке автоматически: путь до сервера минус 60 байт WG-заголовка и `S4` (12), но не ниже 1280 и не выше 1420. Значение лежит в `/etc/amnezia/amneziawg3/mtu`, клиентские конфиги панели берут его оттуда.
 - Две подсети на одном интерфейсе:
   - **10.9.0.0/24 — антизапрет.** Через туннель идут только адреса из списка маршрутов, остальное напрямую. DNS — 127.1.1.1 (антизапрет).
   - **10.9.1.0/24 — полный VPN.** Весь трафик клиента (`0.0.0.0/0`) через сервер, DNS — 127.2.2.2.
-- Конфиг сервера: `/etc/amnezia/amneziawg3/awg1.conf` (параметры обфускации 3.x, `HeaderProtectionKey`). Адрес для клиентов: `/etc/amnezia/amneziawg3/server_host` (`WIREGUARD_HOST` или публичный IP, пишет `setup.sh`). Список маршрутов антизапрета тот же, что у AWG 2.0: `/etc/wireguard/ips`.
+- Конфиг сервера: `/etc/amnezia/amneziawg3/awg1.conf` (параметры обфускации 3.x, `HeaderProtectionKey`). Адрес для клиентов: `/etc/amnezia/amneziawg3/server_host` (`WIREGUARD_HOST` или публичный IP, пишет `setup.sh`). Список маршрутов антизапрета тот же, что у AWG 2: `/etc/wireguard/ips`.
 - Порт клиента: при создании каждого клиента выбирается случайный порт из диапазона **51900–51999** (уже занятые исключаются). В `Endpoint` конфига — этот порт; на узле `REDIRECT` переводит его на ListenPort `51821`. Порт `51821` тоже работает.
 - Файлы профилей: `/root/antizapret/client/amneziawg3/antizapret/antizapret-<имя>-awg3.conf` и `/root/antizapret/client/amneziawg3/vpn/vpn-<имя>-awg3.conf` (права 600), рядом с профилями AmneziaWG 1.5 и 2.0.
 - Systemd: `awg3@awg1` (включается установкой). Скрипты: `/usr/local/sbin/awg3-up.sh`, `/usr/local/sbin/awg3-rules.sh`.
 - Правила файрвола для обеих подсетей: DNAT DNS, метка соединения и DROP по набору `antizapret-forward` (только для антизапрета), подмена фиктивных адресов `ANTIZAPRET-MAPPING`, MSS-clamp, masquerade через выходной интерфейс.
 
-Клиентов создаёт панель на странице «Клиенты» (протокол «AmneziaWG 3.1», режим антизапрет или полный VPN) через агент ноды. Готовые списки маршрутов для роутеров (Keenetic, MikroTik) — `keenetic-amneziawg3-routes.txt` и `mikrotik-amneziawg3-routes.txt` в `result/`, генерируются `parse.sh`. Клиентские конфиги, клиенты с режимами и ключи — в панели, на ноде в `/etc/amnezia/amneziawg3/clients.json` (права 600).
+Клиентов создаёт панель на странице «Клиенты» (протокол «AmneziaWG 3», режим антизапрет или полный VPN) через агент ноды. Готовые списки маршрутов для роутеров (Keenetic, MikroTik) — `keenetic-amneziawg3-routes.txt` и `mikrotik-amneziawg3-routes.txt` в `result/`, генерируются `parse.sh`. Клиентские конфиги, клиенты с режимами и ключи — в панели, на ноде в `/etc/amnezia/amneziawg3/clients.json` (права 600).
 
 Проверка на ноде:
 ```
@@ -97,7 +97,7 @@ systemctl status awg3@awg1
 awg show awg1
 iptables -t nat -S PREROUTING | grep 10.9.
 ```
-Клиентские приложения AmneziaWG 2.0 (Android, Windows) конфиги 3.x не принимают. Сейчас AWG 3.1 используют роутеры (например, OpenWrt с amneziawg 3.x или KeeneticOS 5.2+).
+Клиентские приложения AmneziaWG 2 (Android, Windows) конфиги 3.x не принимают. Сейчас AWG 3 используют роутеры (например, OpenWrt с amneziawg 3.x или KeeneticOS 5.2+).
 
 * Скрипт удаляет некоторые пакеты, в том числе UFW и Firewalld, при необходимости их необходимо установить и настроить вручную.
 * Скрипт отключает входящие подключения по IPv6 на сервере, а DNS АнтиЗапрета не возвращает IPv6-адреса (AAAA-записи) доменов.
@@ -120,7 +120,7 @@ bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax04
 * Включить OpenVPN DCO
 * Выбрать провайдера для WARP-style исходящего трафика: **Proton VPN** (нужно вставить свой WireGuard-конфиг из личного кабинета Proton при первом ANTIZAPRET_WARP/VPN_WARP ≠ "None") или **Cloudflare WARP** (авторегистрация, как раньше)
 * Включить Cloudflare WARP/Proton VPN для исходящего трафика AntiZapret VPN и обычного VPN
-* Выбрать тип маскировки первого пакета AmneziaWG 2.0 (TLS ClientHello, QUIC Initial или SIP INVITE)
+* Выбрать тип маскировки первого пакета AmneziaWG 2 (TLS ClientHello, QUIC Initial или SIP INVITE)
 * Выбрать DNS для AntiZapret VPN и обычного VPN
 * Включить блокировку рекламы, трекеров и фишинга в AntiZapret VPN и обычном VPN на основе правил AdGuard и OISD
 * Использовать альтернативные диапазоны IP-адресов клиентов: `172...` вместо `10...`
@@ -164,14 +164,14 @@ bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax04
 >
 > Опции:
 > ```
->     1) Add client (OpenVPN + WireGuard + AmneziaWG 1.5 + AmneziaWG 2.0)
+>     1) Add client (OpenVPN + WireGuard + AmneziaWG 1.5 + AmneziaWG 2)
 >     2) Delete client (all protocols)
 >     3) List clients (all protocols)
 >     4) (Re)create all client profile files
 >     5) Backup configuration and clients
 >     6) Restore configuration and clients from backup
 > ```
-> Опции 1 и 2 создают/удаляют профили клиента **сразу для всех протоколов одной командой** — отдельно вызывать что-то для WireGuard, AmneziaWG 1.5 или AmneziaWG 2.0 не нужно. После добавления нового клиента скопируйте новые файлы подключений (`*.ovpn` и `*.conf`) с сервера из подпапок `/root/antizapret/client` (профили AmneziaWG 2.0 — в `/root/antizapret/client/amneziawg2`).
+> Опции 1 и 2 создают/удаляют профили клиента **сразу для всех протоколов одной командой** — отдельно вызывать что-то для WireGuard, AmneziaWG 1.5 или AmneziaWG 2 не нужно. После добавления нового клиента скопируйте новые файлы подключений (`*.ovpn` и `*.conf`) с сервера из подпапок `/root/antizapret/client` (профили AmneziaWG 2 — в `/root/antizapret/client/amneziawg2`).
 
 **4. Добавить свои сайты в список АнтиЗапрета**
 ```bash
@@ -315,10 +315,10 @@ systemctl start warpscout-refresh.service
 | `result/tp-link-openvpn-routes.txt` | TP-Link, подключение через OpenVPN | см. [TP-Link.md](TP-Link.md) |
 | `result/keenetic-wireguard-routes.txt` | Keenetic, команды CLI для WireGuard/AmneziaWG 1.5 | шлюз `X.29.8.1` |
 | `result/mikrotik-wireguard-routes.txt` | MikroTik RouterOS, скрипт для WireGuard/AmneziaWG 1.5 | шлюз `X.29.8.1` |
-| `result/keenetic-amneziawg2-routes.txt` | Keenetic, команды CLI для AmneziaWG 2.0 | шлюз `X.29.9.1` |
-| `result/mikrotik-amneziawg2-routes.txt` | MikroTik RouterOS, скрипт для AmneziaWG 2.0 | шлюз `X.29.9.1` |
+| `result/keenetic-amneziawg2-routes.txt` | Keenetic, команды CLI для AmneziaWG 2 | шлюз `X.29.9.1` |
+| `result/mikrotik-amneziawg2-routes.txt` | MikroTik RouterOS, скрипт для AmneziaWG 2 | шлюз `X.29.9.1` |
 
-Файлы для WireGuard/AmneziaWG 1.5 и для AmneziaWG 2.0 **не взаимозаменяемы** — это разные интерфейсы на сервере с разными адресами (`.8.1` и `.9.1` соответственно), маршрут со шлюзом не того протокола просто не заработает. Используйте пару файлов, соответствующую тому протоколу, который реально настроен на роутере. Скопируйте нужный файл с сервера (например через WinSCP/FileZilla) и вставьте его содержимое в командную строку роутера (Keenetic) или терминал (MikroTik).
+Файлы для WireGuard/AmneziaWG 1.5 и для AmneziaWG 2 **не взаимозаменяемы** — это разные интерфейсы на сервере с разными адресами (`.8.1` и `.9.1` соответственно), маршрут со шлюзом не того протокола просто не заработает. Используйте пару файлов, соответствующую тому протоколу, который реально настроен на роутере. Скопируйте нужный файл с сервера (например через WinSCP/FileZilla) и вставьте его содержимое в командную строку роутера (Keenetic) или терминал (MikroTik).
 
 ---
 
@@ -364,7 +364,7 @@ wg show
 * **Клиенты AntiZapret VPN:** `10.29.0.0/22`, `10.29.4.0/22`, `10.29.8.0/24`, `10.29.9.0/24` (альтернативные: `172.29.0.0/22`, `172.29.4.0/22`, `172.29.8.0/24`, `172.29.9.0/24`)
 * **DNS АнтиЗапрета:** `10.29.0.1`, `10.29.4.1`, `10.29.8.1`, `10.29.9.1` (альтернативные: `172.29.0.1`, `172.29.4.1`, `172.29.8.1`, `172.29.9.1`)
 * **Подменные IP АнтиЗапрета:** `10.30.0.0/15` (альтернативные: `172.30.0.0/15`)
-*(Через запятую перечислены пулы для OpenVPN UDP, OpenVPN TCP, WireGuard/AmneziaWG 1.5, AmneziaWG 2.0)*
+*(Через запятую перечислены пулы для OpenVPN UDP, OpenVPN TCP, WireGuard/AmneziaWG 1.5, AmneziaWG 2)*
 
 **4. Как запретить нескольким клиентам использовать один и тот же файл подключения (*.ovpn)?**
 На сервере в папке `/etc/openvpn/server` во всех файлах `.conf` убрать строчку `duplicate-cn`. Перезагрузить сервер.
@@ -404,15 +404,15 @@ Google агрессивно размечает целые пулы адресо�
 **10. Почему я не вижу пункт про отключение IPv6 в меню установки?**
 IPv6 в этом форке полностью отключается на сервере, как и в оригинальном upstream-скрипте — отдельного переключателя нет. Причина: раздельное туннелирование AntiZapret VPN построено на трюке "fake-IP + DNS", который реализован только для IPv4 (proxy.py, RPZ-зоны knot-resolver, NAT-маппинг ANTIZAPRET-MAPPING). Понижение до dual-stack потребовало бы дублирования этого механизма для IPv6, что создаёт риск утечки трафика клиентов мимо туннеля при заходе на IPv6-only ресурсы — поэтому отключение IPv6 оставлено обязательным.
 
-**11. Что выбрать в вопросе про тип маскировки AmneziaWG 2.0 (TLS/QUIC/SIP)?**
+**11. Что выбрать в вопросе про тип маскировки AmneziaWG 2 (TLS/QUIC/SIP)?**
 Это то, под что маскируется самый первый пакет соединения при прохождении DPI:
 * **QUIC Initial** (по умолчанию) — рекомендуется в большинстве случаев, мимикрия под HTTP/3, который сейчас использует большая часть трафика Chrome/Android.
 * **TLS ClientHello** — устаревающий вариант, TLS поверх UDP выглядит нетипично и на некоторых DPI режется чаще QUIC.
 * **SIP INVITE** — мимикрия под VoIP-звонок, стоит попробовать, если QUIC у вашего провайдера тоже фильтруется.
 Сменить выбор после установки можно, поменяв `AWG2_MASQUERADE` (1/2/3) в `/root/antizapret/setup` и выполнив `/root/antizapret/client.sh 4` для перегенерации профилей.
 
-**12. Почему у AmneziaWG 2.0 (`*-am2.conf`) MTU 1280, а не 1420, как у остальных протоколов?**
-У AmneziaWG 3.1 такого фиксированного значения нет: MTU считается при установке по пути до сервера, см. раздел AmneziaWG 3.1.
+**12. Почему у AmneziaWG 2 (`*-am2.conf`) MTU 1280, а не 1420, как у остальных протоколов?**
+У AmneziaWG 3 такого фиксированного значения нет: MTU считается при установке по пути до сервера, см. раздел AmneziaWG 3.
 1280 — минимальный MTU, гарантированно проходящий по любому маршруту, включая мобильные сети и провайдеров с CGNAT, где реальный path MTU до сервера иногда заметно меньше 1500. При более высоком MTU крупные исходящие пакеты (MTU + служебные байты обфускации) могут превышать path MTU и молча дропаться — соединение при этом устанавливается, но исходящая скорость (аплоад) "не едет". Если вы точно знаете, что путь до сервера держит больший MTU, его можно аккуратно увеличить вручную в клиентском профиле, не превышая `путь_MTU - 60 - S4` (значение `S4` — в `[Interface]` того же файла).
 
 **13. Что такое DNS-резолвер GeoHide и зачем он нужен?**

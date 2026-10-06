@@ -159,7 +159,7 @@ until [[ "$WIREGUARD_ENABLE" =~ (y|n) ]]; do
 	read -rp 'Enable WireGuard/AmneziaWG? [y/n]: ' -e -i y WIREGUARD_ENABLE
 done
 echo
-echo 'Choose AmneziaWG 2.0 first-packet masquerade type (helps bypass DPI):'
+echo 'Choose AmneziaWG 2 first-packet masquerade type (helps bypass DPI):'
 echo '    1) TLS ClientHello - legacy, TLS-over-UDP, often filtered by DPI'
 echo '    2) QUIC Initial    - mimics QUIC/HTTP3 (recommended)'
 echo '    3) SIP INVITE      - mimics a VoIP call'
@@ -470,7 +470,7 @@ echo
 
 echo 'Installation, please wait...'
 
-# На первой установке (и на переустановке до появления AmneziaWG 2.0) часть этих юнитов
+# На первой установке (и на переустановке до появления AmneziaWG 2) часть этих юнитов
 # ещё не существует - systemctl тогда пишет красным "Unit file ... does not exist" в stderr,
 # хотя это не ошибка, а норма. 2>/dev/null || true гасит это сообщение и не даёт коду
 # возврата что-либо сломать (script в этом месте ещё выполняется без set -e).
@@ -579,7 +579,7 @@ apt-get clean
 dpkg-reconfigure -f noninteractive unattended-upgrades
 git config --global http.version HTTP/1.1
 
-# AmneziaWG 2.0 (amneziawg-go, userspace) - собирается нативно вместе с основным VPN
+# AmneziaWG 2 (amneziawg-go, userspace) - собирается нативно вместе с основным VPN
 NEED_GO=y
 if command -v go &>/dev/null; then
 	GOMINOR="$(go version | grep -oP 'go1\.\K[0-9]+')"
@@ -733,7 +733,7 @@ cp -r /tmp/antizapret/setup/* /
 rm -rf /tmp/dnslib
 rm -rf /tmp/antizapret
 
-# Обфускация AmneziaWG 2.0: в шаблонах Jc/Jmin/Jmax/S1-S4/H1-H4 - одни и те же
+# Обфускация AmneziaWG 2: в шаблонах Jc/Jmin/Jmax/S1-S4/H1-H4 - одни и те же
 # магические числа на КАЖДОЙ установке AntiZapret (и одинаковые сразу у обоих
 # интерфейсов antizapret2/vpn2 на одном сервере) - тривиальный DPI-отпечаток
 # "это AntiZapret", а не случайная обфускация. Генерируем свой случайный набор
@@ -915,10 +915,10 @@ if [[ "$WIREGUARD_ENABLE" == 'y' ]]; then
 	systemctl restart amneziawg@antizapret2
 	systemctl restart amneziawg@vpn2
 
-# AmneziaWG 3.0 (awg1, userspace amneziawg-go): антизапрет 10.9.0.0/24 и полный VPN 10.9.1.0/24 на одном интерфейсе.
-# Не трогает AmneziaWG 2.0 (antizapret2/vpn2). Панель управляет через агент ноды (см. README, раздел AmneziaWG 3.0).
+# AmneziaWG 3 (awg1, userspace amneziawg-go): антизапрет 10.9.0.0/24 и полный VPN 10.9.1.0/24 на одном интерфейсе.
+# Не трогает AmneziaWG 2 (antizapret2/vpn2). Панель управляет через агент ноды (см. README, раздел AmneziaWG 3).
 install -d -m 700 /etc/amnezia/amneziawg3
-# MTU AmneziaWG 3.1 по умолчанию 1280: пакеты растут из-за паддинга транспорта, при большем MTU соединение фрагментируется и рвётся.
+# MTU AmneziaWG 3 по умолчанию 1280: пакеты растут из-за паддинга транспорта, при большем MTU соединение фрагментируется и рвётся.
 AWG3_S4=12
 AWG3_MTU=1280
 if [[ ! -s /etc/amnezia/amneziawg3/mtu ]]; then
@@ -955,8 +955,8 @@ DisableCookies = on
 EOF3
 	chmod 600 /etc/amnezia/amneziawg3/awg1.conf /etc/amnezia/amneziawg3/server.key
 fi
-# Адрес для клиентов AWG 3.0 - тот же, что в конфигах AWG 2.0: WIREGUARD_HOST, иначе публичный IP.
-# Список маршрутов агент берёт из /etc/wireguard/ips (тот же файл, что у AWG 2.0), копию не создаём.
+# Адрес для клиентов AWG 3 - тот же, что в конфигах AWG 2: WIREGUARD_HOST, иначе публичный IP.
+# Список маршрутов агент берёт из /etc/wireguard/ips (тот же файл, что у AWG 2), копию не создаём.
 AWG3_HOST="${WIREGUARD_HOST:-$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')}"
 if [[ -n "$AWG3_HOST" ]]; then
 	printf '%s\n' "$AWG3_HOST" > /etc/amnezia/amneziawg3/server_host
