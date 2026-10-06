@@ -62,6 +62,14 @@ add mangle FORWARD -s $S -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to
 add nat POSTROUTING -s $S -o $OUT -j MASQUERADE
 # policy routing and WARP for split: same as 10.29 in up.sh (ANTIZAPRET_WARP 2 = all, 3/4 = only marked fake-IP traffic)
 rule_add from $S to $S lookup main priority 5000
+# сначала убираем WARP-правила любого режима: после смены ANTIZAPRET_WARP старые остались бы рядом с новыми
+rule_del from $S lookup 13335 priority 10000
+rule_del from $S fwmark 0x2 lookup 13335 priority 10000
+del nat POSTROUTING -s $S -o warp-antizapret -j MASQUERADE
+del nat POSTROUTING -s $S -o warp-antizapret -j SNAT --to-source "$AZ_WARP_IP"
+del nat POSTROUTING -s $S -m mark --mark 0x2 -o warp-antizapret -j MASQUERADE
+del nat POSTROUTING -s $S -m mark --mark 0x2 -o warp-antizapret -j SNAT --to-source "$AZ_WARP_IP"
+del mangle PREROUTING -s $S -d 198.18.0.0/15 -j ANTIZAPRET-WARP
 case "$ANTIZAPRET_WARP" in
   2)
     rule_add from $S lookup 13335 priority 10000
@@ -81,6 +89,9 @@ add mangle FORWARD -s $F -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to
 add nat POSTROUTING -s $F -o $OUT -j MASQUERADE
 # policy routing and WARP for full: same as 10.28 in up.sh (VPN_WARP 2 = all)
 rule_add from $F to $F lookup main priority 5000
+rule_del from $F lookup 13336 priority 10000
+del nat POSTROUTING -s $F -o warp-vpn -j MASQUERADE
+del nat POSTROUTING -s $F -o warp-vpn -j SNAT --to-source "$VPN_WARP_IP"
 if [ "$VPN_WARP" = "2" ]; then
   rule_add from $F lookup 13336 priority 10000
   warp_snat $F warp-vpn "$VPN_WARP_IP"
