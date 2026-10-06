@@ -495,5 +495,11 @@ echo "AntiZapret DNS cache cleared: $count entries"
 count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/2 | grep -oE '[0-9]+' || echo 0)"
 echo "VPN DNS cache cleared: $count entries"
 
+# AWG 3.1: правила 10.9.x пересобираются после каждого запуска антизапрета, если интерфейс awg1 поднят
+# (адрес и режим WARP берутся из setup, который только что прочитан)
+if [[ -x /usr/local/sbin/awg3-rules.sh ]] && systemctl is-active --quiet awg3@awg1; then
+	/usr/local/sbin/awg3-rules.sh up || true
+fi
+
 ./custom-up.sh
 exit 0

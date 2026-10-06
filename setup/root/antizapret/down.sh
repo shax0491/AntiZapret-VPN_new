@@ -5,6 +5,10 @@ cd /root/antizapret
 
 source setup
 
+# AWG 3.1: правила подсетей 10.9.x снимаются вместе с антизапретом и ставятся заново в up.sh
+# (адрес Proton и режим WARP могли измениться; без этого SNAT 3.1 остаётся со старым адресом)
+[[ -x /usr/local/sbin/awg3-rules.sh ]] && /usr/local/sbin/awg3-rules.sh down || true
+
 # Out IP protection
 iptables -w -D INPUT -d $ANTIZAPRET_OUT_IP -m conntrack --ctstate NEW -j DROP
 iptables -w -D INPUT -d $VPN_OUT_IP -m conntrack --ctstate NEW -j DROP
