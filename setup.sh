@@ -950,8 +950,8 @@ H3 = $((AWG3_H_BASE + 4000))-$((AWG3_H_BASE + 5000))
 H4 = $((AWG3_H_BASE + 6000))-$((AWG3_H_BASE + 7000))
 HeaderProtectionKey = ${AWG3_HPK}
 ContentPaddingAddition = 2
-RandomTrailers = true
-DisableCookies = true
+RandomTrailers = on
+DisableCookies = on
 EOF3
 	chmod 600 /etc/amnezia/amneziawg3/awg1.conf /etc/amnezia/amneziawg3/server.key
 fi
