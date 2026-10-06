@@ -1,6 +1,7 @@
 [Unit]
 Description=AmneziaWG 3.0 interface %i
-After=network-online.target
+# после antizapret.service: awg3-rules.sh использует цепочку ANTIZAPRET-WARP и интерфейсы warp-*, которые создаёт up.sh
+After=network-online.target antizapret.service
 Wants=network-online.target
 
 [Service]
