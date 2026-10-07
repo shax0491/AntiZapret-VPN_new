@@ -52,6 +52,11 @@ DENY2_RPZ_PATH=download/deny2-rpz.txt
 INCLUDE_HOSTS_LINK=$FORK_BASE/download/include-hosts.txt
 INCLUDE_HOSTS_PATH=download/include-hosts.txt
 
+# Встроенный список WARP (STUN/TURN Cloudflare, Google и т.п.), как у апстрима: без него
+# ANTIZAPRET_WARP=4 с пустым config/include-warp-hosts.txt ничего не пускал в WARP
+INCLUDE_WARP_HOSTS_LINK=$FORK_BASE/download/include-warp-hosts.txt
+INCLUDE_WARP_HOSTS_PATH=download/include-warp-hosts.txt
+
 EXCLUDE_HOSTS_LINK=$FORK_BASE/download/exclude-hosts.txt
 EXCLUDE_HOSTS_PATH=download/exclude-hosts.txt
 
@@ -213,6 +218,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	download $DENY_RPZ_PATH $DENY_RPZ_LINK n || true
 	download $DENY2_RPZ_PATH $DENY2_RPZ_LINK n || true
 	download $INCLUDE_HOSTS_PATH $INCLUDE_HOSTS_LINK n || true
+	download $INCLUDE_WARP_HOSTS_PATH $INCLUDE_WARP_HOSTS_LINK n || true
 	download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK n || true
 
 	if [[ "$ROUTE_ALL" == 'y' ]]; then

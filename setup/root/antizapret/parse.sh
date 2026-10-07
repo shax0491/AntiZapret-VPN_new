@@ -273,7 +273,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*include-hosts.txt config/*include-hosts.txt > temp/include-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*exclude-hosts.txt config/*exclude-hosts.txt | sort -u > temp/exclude-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*remove-hosts.txt config/*remove-hosts.txt | sort -u > temp/remove-hosts.txt
-	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' config/*include-warp-hosts.txt | sort -u > result/include-warp-hosts.txt
+	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*include-warp-hosts.txt config/*include-warp-hosts.txt | sort -u > result/include-warp-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' config/*exclude-warp-hosts.txt | sort -u > result/exclude-warp-hosts.txt
 
 	# nice/ionice: обработка ~3.3М строк из download/*domain.txt через sed+idn
