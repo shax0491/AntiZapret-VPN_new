@@ -24,6 +24,38 @@ fi
 
 cd /root
 
+# Обновление без вопросов: setup.sh --update (или AZ_UPDATE=y). Ответы берутся из уже
+# установленного /root/antizapret/setup - все циклы "until [[ $ПЕРЕМЕННАЯ =~ ... ]]; do read"
+# ниже видят заполненную переменную и не спрашивают. Ключи Proton/Cloudflare, доменные имена,
+# MTU и параметры обфускации AmneziaWG 2 сохраняются, перезагрузки в конце нет.
+[[ "$1" == '--update' ]] && AZ_UPDATE=y
+if [[ "$AZ_UPDATE" == 'y' ]]; then
+	if [[ ! -f /root/antizapret/setup ]]; then
+		echo 'Error: --update needs an existing installation (/root/antizapret/setup not found)!'
+		exit 11
+	fi
+	source /root/antizapret/setup
+	AZ_UPDATE_MTU="$MTU"
+	[[ "$WARP_PROVIDER" == 'cloudflare' ]] && WARP_PROVIDER_CHOICE=2 || WARP_PROVIDER_CHOICE=1
+	# Параметры, которых не было в setup на момент установки (их добавили в форк позже), получают
+	# то же значение по умолчанию, что предлагает вопрос ниже: отвечать при --update некому,
+	# и цикл "until ... read" без ввода крутился бы вечно
+	for AZ_DEFAULT in OPENVPN_UDP_ENABLE=y OPENVPN_TCP_ENABLE=n WIREGUARD_ENABLE=y AWG2_MASQUERADE=2 \
+		OPENVPN_PATCH=2 OPENVPN_DCO=y ANTIZAPRET_WARP=2 VPN_WARP=2 WARP_MTU=1280 WARP_PROTECTION=y \
+		ANTIZAPRET_DNS=1 VPN_DNS=1 ANTIZAPRET_ADBLOCK=y VPN_ADBLOCK=n ALTERNATIVE_CLIENT_IP=n \
+		ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y \
+		OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y \
+		TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y \
+		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y; do
+		AZ_DEFAULT_NAME="${AZ_DEFAULT%%=*}"
+		if [[ -z "${!AZ_DEFAULT_NAME}" ]]; then
+			printf -v "$AZ_DEFAULT_NAME" '%s' "${AZ_DEFAULT#*=}"
+			echo "Update mode: $AZ_DEFAULT_NAME is not in setup, using default ${AZ_DEFAULT#*=}"
+		fi
+	done
+	echo 'Update mode: reusing answers from /root/antizapret/setup'
+fi
+
 if [[ "$(systemd-detect-virt)" == 'openvz' || "$(systemd-detect-virt)" == 'lxc' ]]; then
 	echo 'Error: OpenVZ and LXC are not supported!'
 	exit 4
@@ -83,32 +115,6 @@ echo 'OpenVPN + WireGuard + AmneziaWG'
 echo 'More details: https://github.com/shax0491/AntiZapret-VPN_new'
 echo
 
-# Выключаем IPv6 уже здесь (а не только в основном блоке ниже) - сторонние
-# скрипты диагностики (check_server.sh) сами определяют доступные стеки сети
-# и при живом IPv6 спрашивают через диалог "IPv4/IPv6 Dual Stack" вручную;
-# если IPv6 уже отключен на уровне ядра, такие диалоги молча выбирают IPv4.
-sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null
-sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null
-sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null
-
-until [[ "$RUN_SERVER_DIAGNOSTICS" =~ (y|n) ]]; do
-	read -rp 'Run full server diagnostics before installation? [y/n]: ' -e -i n RUN_SERVER_DIAGNOSTICS
-done
-if [[ "$RUN_SERVER_DIAGNOSTICS" == 'y' ]]; then
-	# Обычный `bash <(curl ...)` (process substitution) тут не годится: setup.sh
-	# сам обычно запускают как `curl ... | bash`, и его fd0 - это тот же пайп,
-	# из которого bash ещё дочитывает хвост собственного скрипта. Process
-	# substitution путает буферизацию чтения в этой ситуации и рвёт setup.sh
-	# на произвольном месте ("syntax error near unexpected token"). Поэтому
-	# качаем во временный файл с реальным fd и запускаем его отдельно.
-	CHECK_SERVER_TMP="$(mktemp)"
-	if curl -fsSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/setup/root/antizapret/check_server.sh -o "$CHECK_SERVER_TMP"; then
-		bash "$CHECK_SERVER_TMP" || true
-	fi
-	rm -f "$CHECK_SERVER_TMP"
-fi
-echo
-
 MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
 if (( MTU < 1500 )); then
 	echo "Warning! Low MTU on $DEFAULT_INTERFACE: $MTU"
@@ -146,6 +152,11 @@ VPN_MTU=$((DETECTED_PMTU - 80))
 echo "Detected path MTU to 1.1.1.1: $DETECTED_PMTU, using MTU=$VPN_MTU for tunnels (minus ~80 bytes tunnel overhead)"
 echo "Change MTU in OpenVPN and WireGuard configs from 1420 to $VPN_MTU on this server after installation if needed"
 echo
+# При обновлении MTU не пересчитываем: его могли подобрать руками, а замер выше зависит от момента
+if [[ "$AZ_UPDATE" == 'y' && "$AZ_UPDATE_MTU" =~ ^[0-9]+$ ]]; then
+	VPN_MTU=$AZ_UPDATE_MTU
+	echo "Update mode: keeping MTU=$VPN_MTU from /root/antizapret/setup"
+fi
 
 until [[ "$OPENVPN_UDP_ENABLE" =~ (y|n) ]]; do
 	read -rp 'Enable OpenVPN UDP? [y/n]: ' -e -i y OPENVPN_UDP_ENABLE
@@ -237,16 +248,19 @@ fi
 # --- Proton VPN: получение и разбор WireGuard-конфигов взамен авторегистрации WARP ---
 # Запрашивается сразу после выбора провайдера и охвата WARP (ANTIZAPRET_WARP/VPN_WARP),
 # а не в конце установки, чтобы пользователь не искал глазами этот шаг среди других вопросов.
-PROTON_ANTIZAPRET_PRIVATE_KEY=
-PROTON_ANTIZAPRET_PUBLIC_KEY=
-PROTON_ANTIZAPRET_ADDRESS=
-PROTON_ANTIZAPRET_ENDPOINT_HOST=
-PROTON_ANTIZAPRET_ENDPOINT_PORT=
-PROTON_VPN_PRIVATE_KEY=
-PROTON_VPN_PUBLIC_KEY=
-PROTON_VPN_ADDRESS=
-PROTON_VPN_ENDPOINT_HOST=
-PROTON_VPN_ENDPOINT_PORT=
+# При обновлении (--update) ключи уже прочитаны из setup - не обнуляем их.
+if [[ "$AZ_UPDATE" != 'y' ]]; then
+	PROTON_ANTIZAPRET_PRIVATE_KEY=
+	PROTON_ANTIZAPRET_PUBLIC_KEY=
+	PROTON_ANTIZAPRET_ADDRESS=
+	PROTON_ANTIZAPRET_ENDPOINT_HOST=
+	PROTON_ANTIZAPRET_ENDPOINT_PORT=
+	PROTON_VPN_PRIVATE_KEY=
+	PROTON_VPN_PUBLIC_KEY=
+	PROTON_VPN_ADDRESS=
+	PROTON_VPN_ENDPOINT_HOST=
+	PROTON_VPN_ENDPOINT_PORT=
+fi
 
 parse_proton_wg_conf() {
 	# $1 = сырой текст wg-конфига, $2 = префикс переменных (PROTON_ANTIZAPRET / PROTON_VPN)
@@ -287,7 +301,8 @@ read_proton_config() {
 	cat < /dev/tty
 }
 
-if [[ "$WARP_PROVIDER" == 'proton' ]]; then
+# При обновлении конфиг Proton спрашиваем только для того охвата, где ключа ещё нет
+if [[ "$WARP_PROVIDER" == 'proton' ]] && ! [[ "$AZ_UPDATE" == 'y' && ( "$ANTIZAPRET_WARP" == '1' || -n "$PROTON_ANTIZAPRET_PRIVATE_KEY" ) && ( "$VPN_WARP" == '1' || -n "$PROTON_VPN_PRIVATE_KEY" ) ]]; then
 	echo 'Proton VPN has no simple scriptable login API (SRP auth). Get a WireGuard config from'
 	echo 'your Proton account (Downloads -> WireGuard configuration) or via the official protonvpn-cli,'
 	echo 'then paste its full content below.'
@@ -302,7 +317,7 @@ if [[ "$WARP_PROVIDER" == 'proton' ]]; then
 		echo
 	fi
 
-	if [[ "$ANTIZAPRET_WARP" != '1' ]]; then
+	if [[ "$ANTIZAPRET_WARP" != '1' && -z "$PROTON_ANTIZAPRET_PRIVATE_KEY" ]]; then
 		echo 'Paste Proton VPN WireGuard config for AntiZapret VPN egress, then press Ctrl+D to finish:'
 		RAW="$(read_proton_config)"
 		until parse_proton_wg_conf "$RAW" PROTON_ANTIZAPRET; do
@@ -312,7 +327,7 @@ if [[ "$WARP_PROVIDER" == 'proton' ]]; then
 		echo
 	fi
 
-	if [[ "$VPN_WARP" != '1' ]]; then
+	if [[ "$VPN_WARP" != '1' && -z "$PROTON_VPN_PRIVATE_KEY" ]]; then
 		echo 'Paste Proton VPN WireGuard config for full VPN egress, then press Ctrl+D to finish:'
 		RAW="$(read_proton_config)"
 		until parse_proton_wg_conf "$RAW" PROTON_VPN; do
@@ -439,18 +454,21 @@ until [[ "$CLIENT_ISOLATION" =~ (y|n) ]]; do
 	read -rp $'Enable \001\e[1;32m\002all VPN\001\e[0m\002 client and server isolation? [y/n]: ' -e -i y CLIENT_ISOLATION
 done
 echo
-while read -rp 'Enter valid domain name for this OpenVPN server or press Enter to skip: ' -e OPENVPN_HOST
-do
-	[[ -z "$OPENVPN_HOST" ]] && break
-	[[ -n $(getent ahostsv4 "$OPENVPN_HOST") ]] && break
-done
-echo
-while read -rp 'Enter valid domain name for this WireGuard/AmneziaWG server or press Enter to skip: ' -e WIREGUARD_HOST
-do
-	[[ -z "$WIREGUARD_HOST" ]] && break
-	[[ -n $(getent ahostsv4 "$WIREGUARD_HOST") ]] && break
-done
-echo
+# При обновлении доменные имена берём из setup как есть (пустое значение - тоже ответ)
+if [[ "$AZ_UPDATE" != 'y' ]]; then
+	while read -rp 'Enter valid domain name for this OpenVPN server or press Enter to skip: ' -e OPENVPN_HOST
+	do
+		[[ -z "$OPENVPN_HOST" ]] && break
+		[[ -n $(getent ahostsv4 "$OPENVPN_HOST") ]] && break
+	done
+	echo
+	while read -rp 'Enter valid domain name for this WireGuard/AmneziaWG server or press Enter to skip: ' -e WIREGUARD_HOST
+	do
+		[[ -z "$WIREGUARD_HOST" ]] && break
+		[[ -n $(getent ahostsv4 "$WIREGUARD_HOST") ]] && break
+	done
+	echo
+fi
 until [[ "$ROUTE_ALL" =~ (y|n) ]]; do
 	read -rp $'Route all domains via \001\e[1;32m\002AntiZapret VPN\001\e[0m\002, excluding Russian domains and config/exclude-hosts.txt? [y/n]: ' -e -i n ROUTE_ALL
 done
@@ -550,7 +568,15 @@ rm -rf /etc/apt/sources.list.d/openvpn-aptrepo.list
 rm -rf /etc/apt/sources.list.d/backports.list
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get dist-upgrade -y
+if [[ "$AZ_UPDATE" == 'y' ]]; then
+	# При обновлении ядро не меняем: dist-upgrade тянет новые пакеты ядра, а модуль DKMS
+	# amneziawg (AmneziaWG 2) собирается не под каждое новое ядро - так было с 7.0.0-38
+	# (setup_udp_tunnel_sock): dpkg падал, а после перезагрузки AmneziaWG 2 не поднимался.
+	# apt-get upgrade обновляет установленное, но новых пакетов (и новых ядер) не ставит.
+	apt-get upgrade -y
+else
+	apt-get dist-upgrade -y
+fi
 apt-get install -y curl gpg
 
 mkdir -p /etc/apt/keyrings
@@ -567,7 +593,11 @@ fi
 
 apt-get update
 INSTALL=
-if [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
+# При обновлении метапакет ядра не ставим (см. apt-get upgrade выше): он тянет новейшее ядро,
+# под которое модуль amneziawg может не собраться
+if [[ "$AZ_UPDATE" == 'y' ]]; then
+	:
+elif [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
 	INSTALL="linux-generic-hwe-${VERSION}.04"
 elif [[ "$OS" == 'debian' ]] && (( VERSION < 14 )); then
 	INSTALL="-t $CODENAME-backports linux-image-$ARCH linux-headers-$ARCH"
@@ -656,15 +686,15 @@ WARP_PROVIDER=$WARP_PROVIDER
 WARP_MTU=$WARP_MTU
 WARP_PROTECTION=$WARP_PROTECTION
 ANTIZAPRET_WARP=$ANTIZAPRET_WARP
-ANTIZAPRET_WARP_PRIVATE_KEY=
-ANTIZAPRET_WARP_PUBLIC_KEY=
-ANTIZAPRET_WARP_ENDPOINT=
-ANTIZAPRET_WARP_ADDRESS=
+ANTIZAPRET_WARP_PRIVATE_KEY=$ANTIZAPRET_WARP_PRIVATE_KEY
+ANTIZAPRET_WARP_PUBLIC_KEY=$ANTIZAPRET_WARP_PUBLIC_KEY
+ANTIZAPRET_WARP_ENDPOINT=$ANTIZAPRET_WARP_ENDPOINT
+ANTIZAPRET_WARP_ADDRESS=$ANTIZAPRET_WARP_ADDRESS
 VPN_WARP=$VPN_WARP
-VPN_WARP_PRIVATE_KEY=
-VPN_WARP_PUBLIC_KEY=
-VPN_WARP_ENDPOINT=
-VPN_WARP_ADDRESS=
+VPN_WARP_PRIVATE_KEY=$VPN_WARP_PRIVATE_KEY
+VPN_WARP_PUBLIC_KEY=$VPN_WARP_PUBLIC_KEY
+VPN_WARP_ENDPOINT=$VPN_WARP_ENDPOINT
+VPN_WARP_ADDRESS=$VPN_WARP_ADDRESS
 PROTON_ANTIZAPRET_PRIVATE_KEY=$PROTON_ANTIZAPRET_PRIVATE_KEY
 PROTON_ANTIZAPRET_PUBLIC_KEY=$PROTON_ANTIZAPRET_PUBLIC_KEY
 PROTON_ANTIZAPRET_ADDRESS=$PROTON_ANTIZAPRET_ADDRESS
@@ -814,11 +844,28 @@ awg2_apply_obfuscation() {
 		"$@"
 }
 
-awg2_gen_obfuscation_set
-awg2_apply_obfuscation /etc/amneziawg/templates/antizapret2.conf /etc/amneziawg/templates/antizapret2-client.conf
+# Берёт Jc/Jmin/Jmax/S1-S4/H1-H4 из уже работающего конфига сервера. Нужно при обновлении:
+# ключи и пиры сервера setup.sh не трогает, а клиентские профили client.sh 4 пересобирает из
+# шаблонов - новый случайный набор в шаблонах разошёлся бы с сервером, и все клиенты
+# AmneziaWG 2 перестали бы подключаться.
+awg2_load_obfuscation_set() {
+	local conf="$1" k v
+	[[ -f "$conf" ]] || return 1
+	for k in Jc Jmin Jmax S1 S2 S3 S4 H1 H2 H3 H4; do
+		v="$(awk -F' = ' -v k="$k" '$1 == k {print $2; exit}' "$conf")"
+		[[ -n "$v" ]] || return 1
+		printf -v "AWG2_${k^^}" '%s' "$v"
+	done
+}
 
-awg2_gen_obfuscation_set
-awg2_apply_obfuscation /etc/amneziawg/templates/vpn2.conf /etc/amneziawg/templates/vpn2-client.conf
+for AWG2_IF in antizapret2 vpn2; do
+	if [[ "$AZ_UPDATE" == 'y' ]] && awg2_load_obfuscation_set "/etc/amneziawg/$AWG2_IF.conf"; then
+		echo "Update mode: keeping AmneziaWG 2 obfuscation of $AWG2_IF"
+	else
+		awg2_gen_obfuscation_set
+	fi
+	awg2_apply_obfuscation "/etc/amneziawg/templates/$AWG2_IF.conf" "/etc/amneziawg/templates/$AWG2_IF-client.conf"
+done
 
 # Файл setup содержит приватные ключи (WireGuard/AmneziaWG/Proton) в открытом виде -
 # после chmod 644 {} + выше он мирового чтения, закрываем доступ только для root.
@@ -962,9 +1009,9 @@ if [[ -n "$AWG3_HOST" ]]; then
 	printf '%s\n' "$AWG3_HOST" > /etc/amnezia/amneziawg3/server_host
 	chmod 644 /etc/amnezia/amneziawg3/server_host
 fi
-install -m 755 /tmp/antizapret/setup/root/antizapret/awg3/awg3-rules.sh /usr/local/sbin/awg3-rules.sh
-install -m 755 /tmp/antizapret/setup/root/antizapret/awg3/awg3-up.sh /usr/local/sbin/awg3-up.sh
-install -m 644 /tmp/antizapret/setup/root/antizapret/awg3/awg3@.service /etc/systemd/system/awg3@.service
+install -m 755 /root/antizapret/awg3/awg3-rules.sh /usr/local/sbin/awg3-rules.sh
+install -m 755 /root/antizapret/awg3/awg3-up.sh /usr/local/sbin/awg3-up.sh
+install -m 644 /root/antizapret/awg3/awg3@.service /etc/systemd/system/awg3@.service
 systemctl daemon-reload
 systemctl enable awg3@awg1
 systemctl restart awg3@awg1
@@ -1000,5 +1047,19 @@ if [[ -z "$(swapon --show)" ]]; then
 fi
 
 echo
+if [[ "$AZ_UPDATE" == 'y' ]]; then
+	# Обновление без перезагрузки: службы, остановленные в начале (systemctl disable --now),
+	# запускаем заново. Ядро и модули не менялись, клиенты переподключатся сами.
+	systemctl daemon-reload
+	systemctl restart kresd@1 kresd@2
+	systemctl restart antizapret
+	systemctl start antizapret-update.timer
+	for AZ_UNIT in openvpn-server@antizapret-udp openvpn-server@vpn-udp openvpn-server@antizapret-tcp openvpn-server@vpn-tcp wg-quick@antizapret wg-quick@vpn amneziawg@antizapret2 amneziawg@vpn2 awg3@awg1 warpscout-refresh.timer; do
+		systemctl is-enabled --quiet "$AZ_UNIT" 2>/dev/null && systemctl restart "$AZ_UNIT"
+	done
+	echo
+	echo -e '\e[1;32mAntiZapret VPN + full VPN updated successfully!\e[0m'
+	exit 0
+fi
 echo -e '\e[1;32mAntiZapret VPN + full VPN installed successfully!\e[0m'
 reboot
