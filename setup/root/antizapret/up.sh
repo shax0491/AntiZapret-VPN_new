@@ -258,6 +258,43 @@ else
 	rm -f $VPN_WARP_PATH
 fi
 
+# DNS через WARP. Клиентский DNS отвечает локальный kresd, а его запросы к внешним резолверам -
+# трафик самого сервера: правила "from $IP.29/$IP.28" и fwmark их не ловят, и они уходили с IP
+# сервера. kresd@1 (российские резолверы, ответы для RU-доменов) оставляем на IP сервера, а
+# kresd@2 (зарубежные: домены из proxy.rpz/warp.rpz через proxy.py и DNS полного VPN) выводим
+# в WARP: адрес источника = адрес WARP-интерфейса, правило "from <адрес>" ведёт в его таблицу.
+# Адрес берётся с поднятого интерфейса, поэтому смена провайдера (Proton/Cloudflare), ключей и
+# адреса из панели подхватывается тем же up.sh. Отключить: ANTIZAPRET_WARP_DNS=n в setup.
+KRESD2_OUT_FILE=/etc/knot-resolver/outgoing2.lua
+KRESD2_WARP_IP=''
+KRESD2_WARP_TABLE=''
+# Через WARP пускаем только зарубежные наборы DNS (2 Cloudflare/Quad9/ControlD/UltraDNS, 4 Google,
+# 5 AdGuard): российские (1 MSK-IX/НСДИ/ТТК, 3 Яндекс, 6-8 Comss/XBox/GeoHide) с зарубежного
+# адреса WARP отвечают нестабильно или не отвечают вовсе
+case "$(grep -oP '^local dns2 = \K[0-9]+' /etc/knot-resolver/kresd.conf 2>/dev/null)" in
+	2|4|5)
+		if [[ "$ANTIZAPRET_WARP_DNS" != 'n' ]]; then
+			if [[ "$ANTIZAPRET_WARP" =~ ^[234]$ ]] && ip link show dev $ANTIZAPRET_WARP_INTERFACE &>/dev/null; then
+				KRESD2_WARP_IP="$(ip -4 -o addr show dev $ANTIZAPRET_WARP_INTERFACE | awk '{sub(/\/.*/, "", $4); print $4; exit}')"
+				KRESD2_WARP_TABLE=13335
+			elif [[ "$VPN_WARP" =~ ^[234]$ ]] && ip link show dev $VPN_WARP_INTERFACE &>/dev/null; then
+				KRESD2_WARP_IP="$(ip -4 -o addr show dev $VPN_WARP_INTERFACE | awk '{sub(/\/.*/, "", $4); print $4; exit}')"
+				KRESD2_WARP_TABLE=13336
+			fi
+		fi
+		;;
+esac
+if [[ -n "$KRESD2_WARP_IP" ]]; then
+	ip rule add from $KRESD2_WARP_IP lookup $KRESD2_WARP_TABLE priority 9990
+	echo "net.outgoing_v4('$KRESD2_WARP_IP')" > $KRESD2_OUT_FILE.tmp
+	chmod 644 $KRESD2_OUT_FILE.tmp
+	mv -f $KRESD2_OUT_FILE.tmp $KRESD2_OUT_FILE
+	echo "net.outgoing_v4('$KRESD2_WARP_IP')" | socat - /run/knot-resolver/control/2 &>/dev/null || true
+	echo "VPN DNS (kresd@2) via WARP: $KRESD2_WARP_IP, table $KRESD2_WARP_TABLE"
+else
+	rm -f $KRESD2_OUT_FILE
+fi
+
 # filter
 iptables -w -P INPUT ACCEPT
 iptables -w -P FORWARD ACCEPT

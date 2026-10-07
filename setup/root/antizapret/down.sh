@@ -63,6 +63,12 @@ if [[ "$VPN_WARP" == '2' ]] && ip link show dev $VPN_WARP_INTERFACE &>/dev/null;
 	VPN_OUT_IP=$VPN_WARP_IP
 fi
 
+# DNS через WARP (см. up.sh): kresd@2 возвращаем на адрес сервера, пока туннели снимаются -
+# иначе он продолжал бы привязываться к адресу WARP, которого скоро не будет на интерфейсе
+while ip rule del priority 9990 2>/dev/null; do :; done
+rm -f /etc/knot-resolver/outgoing2.lua
+echo "net.outgoing_v4(nil)" | socat - /run/knot-resolver/control/2 &>/dev/null || true
+
 # filter
 # INPUT connection tracking
 iptables -w -D INPUT -m conntrack --ctstate INVALID -j DROP
