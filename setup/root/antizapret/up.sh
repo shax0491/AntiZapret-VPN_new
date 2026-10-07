@@ -264,7 +264,8 @@ fi
 # kresd@2 (зарубежные: домены из proxy.rpz/warp.rpz через proxy.py и DNS полного VPN) выводим
 # в WARP: адрес источника = адрес WARP-интерфейса, правило "from <адрес>" ведёт в его таблицу.
 # Адрес берётся с поднятого интерфейса, поэтому смена провайдера (Proton/Cloudflare), ключей и
-# адреса из панели подхватывается тем же up.sh. Отключить: ANTIZAPRET_WARP_DNS=n в setup.
+# адреса из панели подхватывается тем же up.sh. По умолчанию выключено, как у апстрима (там
+# kresd всегда ходит с IP сервера); включить: ANTIZAPRET_WARP_DNS=y в setup или в панели.
 KRESD2_OUT_FILE=/etc/knot-resolver/outgoing2.lua
 KRESD2_WARP_IP=''
 KRESD2_WARP_TABLE=''
@@ -273,7 +274,7 @@ KRESD2_WARP_TABLE=''
 # адреса WARP отвечают нестабильно или не отвечают вовсе
 case "$(grep -oP '^local dns2 = \K[0-9]+' /etc/knot-resolver/kresd.conf 2>/dev/null)" in
 	2|4|5)
-		if [[ "$ANTIZAPRET_WARP_DNS" != 'n' ]]; then
+		if [[ "$ANTIZAPRET_WARP_DNS" == 'y' ]]; then
 			if [[ "$ANTIZAPRET_WARP" =~ ^[234]$ ]] && ip link show dev $ANTIZAPRET_WARP_INTERFACE &>/dev/null; then
 				KRESD2_WARP_IP="$(ip -4 -o addr show dev $ANTIZAPRET_WARP_INTERFACE | awk '{sub(/\/.*/, "", $4); print $4; exit}')"
 				KRESD2_WARP_TABLE=13335
