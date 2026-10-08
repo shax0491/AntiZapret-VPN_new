@@ -577,9 +577,9 @@ apt-get update
 if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# apt-get upgrade обновляет установленное, но новых пакетов не ставит; новое ядро ставится ниже
 	# через метапакет ядра и остаётся, только если под него собрался модуль AmneziaWG (awg-kmod.sh)
-	apt-get upgrade -y
+	apt-get upgrade -y --fix-missing
 else
-	apt-get dist-upgrade -y
+	apt-get dist-upgrade -y --fix-missing
 fi
 apt-get install -y curl gpg
 
@@ -615,6 +615,8 @@ else
 fi
 apt-mark unhold $KERNEL_META &>/dev/null || true
 apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms
+# Общая служба openvpn не нужна: серверы запускаются через openvpn-server@
+systemctl disable --now openvpn 2>/dev/null || true
 # Заголовки текущего ядра для сборки модуля AmneziaWG; старого ядра в репозитории может уже не быть
 apt-get install -y "linux-headers-$(uname -r)" || true
 apt-get autoremove --purge -y
