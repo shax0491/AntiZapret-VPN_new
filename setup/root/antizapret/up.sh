@@ -10,6 +10,10 @@ source setup
 
 WARP_PROVIDER="${WARP_PROVIDER:-cloudflare}"
 
+# Режим 3 и остальные режимы WARP используют разный warp.rpz: пересобираем под текущий
+# ANTIZAPRET_WARP, иначе смена режима из панели (только up.sh) не меняет маршрут доменов
+./warp-rpz.sh || echo 'warp.rpz rebuild failed'
+
 # Out IP protection
 if [[ -n "$ANTIZAPRET_OUT_IP" ]]; then
 	iptables -w -I INPUT 1 -d $ANTIZAPRET_OUT_IP -m conntrack --ctstate NEW -j DROP
