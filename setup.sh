@@ -614,7 +614,7 @@ else
 	INSTALL="linux-image-$ARCH linux-headers-$ARCH"
 fi
 apt-mark unhold $KERNEL_META &>/dev/null || true
-apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms
+apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms conntrack
 # Общая служба openvpn не нужна: серверы запускаются через openvpn-server@
 systemctl disable --now openvpn 2>/dev/null || true
 # Заголовки текущего ядра для сборки модуля AmneziaWG; старого ядра в репозитории может уже не быть
