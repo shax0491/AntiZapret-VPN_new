@@ -59,6 +59,8 @@ echo -e '\e[1;32mInstalling proxy for AntiZapret VPN server\e[0m'
 echo 'Proxied ports:'
 echo '    OpenVPN UDP/TCP:       80, 443, 504, 508, 50080, 50443'
 echo '    WireGuard/AmneziaWG:   540, 580, 51080, 51443, 52080, 52443'
+echo '    AmneziaWG 2:           544, 584, 53080, 53443'
+echo '    AmneziaWG 3:           51900-51999'
 echo "    SSH OpenVPN:           $OPENVPN_SSH"
 echo "    SSH WireGuard:         $WIREGUARD_SSH"
 echo 'More details: https://github.com/shax0491/AntiZapret-VPN_new'
@@ -274,7 +276,7 @@ net.ipv4.conf.all.secure_redirects=0
 net.ipv4.conf.default.secure_redirects=0
 net.ipv4.conf.all.accept_source_route=0
 net.ipv4.conf.default.accept_source_route=0
-net.ipv4.ip_local_reserved_ports=50080,50443,51080,51443,52080,52443
+net.ipv4.ip_local_reserved_ports=50080,50443,51080,51443,52080,52443,53080,53443,51900-51999
 net.ipv4.tcp_keepalive_time=600
 net.ipv4.tcp_keepalive_intvl=30
 net.ipv4.tcp_keepalive_probes=3
@@ -394,6 +396,13 @@ if [[ "$WIREGUARD" == 'y' ]]; then
 	iptables -w -t nat -A PREROUTING -p udp --dport 51443 -j DNAT --to-destination $WIREGUARD_IP:51443
 	iptables -w -t nat -A PREROUTING -p udp --dport 52080 -j DNAT --to-destination $WIREGUARD_IP:51080
 	iptables -w -t nat -A PREROUTING -p udp --dport 52443 -j DNAT --to-destination $WIREGUARD_IP:51443
+	# AmneziaWG 2 (antizapret2 53443, vpn2 53080; 544/584 - их резервные порты)
+	iptables -w -t nat -A PREROUTING -p udp --dport 544 -j DNAT --to-destination $WIREGUARD_IP:53443
+	iptables -w -t nat -A PREROUTING -p udp --dport 584 -j DNAT --to-destination $WIREGUARD_IP:53080
+	iptables -w -t nat -A PREROUTING -p udp --dport 53080 -j DNAT --to-destination $WIREGUARD_IP:53080
+	iptables -w -t nat -A PREROUTING -p udp --dport 53443 -j DNAT --to-destination $WIREGUARD_IP:53443
+	# AmneziaWG 3: у клиента свой порт из 51900-51999, сервер принимает любой из них
+	iptables -w -t nat -A PREROUTING -p udp --dport 51900:51999 -j DNAT --to-destination $WIREGUARD_IP
 fi
 # SSH proxy
 if [[ "$SSH_PROXY" == 'y' ]]; then
