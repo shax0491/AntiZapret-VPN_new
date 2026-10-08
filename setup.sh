@@ -6,7 +6,8 @@
 #
 export LC_ALL=C
 
-if [[ -f /var/run/reboot-required ]] || pidof apt apt-get dpkg unattended-upgrades &>/dev/null; then
+# --update ставит новое ядро без перезагрузки (reboot-required), поэтому повторному --update она не нужна
+if { [[ -f /var/run/reboot-required ]] && [[ "$1" != '--update' && "$AZ_UPDATE" != 'y' ]]; } || pidof apt apt-get dpkg unattended-upgrades &>/dev/null; then
 	echo 'Error: You need to reboot this server before installation!'
 	exit 2
 fi
@@ -567,12 +568,15 @@ rm -rf /etc/apt/sources.list.d/cznic-labs-knot-resolver.list
 rm -rf /etc/apt/sources.list.d/openvpn-aptrepo.list
 rm -rf /etc/apt/sources.list.d/backports.list
 export DEBIAN_FRONTEND=noninteractive
+# Пакет amneziawg-dkms из PPA Amnezia (ставился вручную) собирается под каждое новое ядро и роняет
+# dpkg, если сборка не удалась (так было с 7.0.0-38). Модуль ставит awg-kmod.sh ниже, пакет не нужен
+if dpkg -s amneziawg-dkms &>/dev/null; then
+	apt-get purge -y amneziawg-dkms || dpkg --purge --force-all amneziawg-dkms
+fi
 apt-get update
 if [[ "$AZ_UPDATE" == 'y' ]]; then
-	# При обновлении ядро не меняем: dist-upgrade тянет новые пакеты ядра, а модуль DKMS
-	# amneziawg (AmneziaWG 2) собирается не под каждое новое ядро - так было с 7.0.0-38
-	# (setup_udp_tunnel_sock): dpkg падал, а после перезагрузки AmneziaWG 2 не поднимался.
-	# apt-get upgrade обновляет установленное, но новых пакетов (и новых ядер) не ставит.
+	# apt-get upgrade обновляет установленное, но новых пакетов не ставит; новое ядро ставится ниже
+	# через метапакет ядра и остаётся, только если под него собрался модуль AmneziaWG (awg-kmod.sh)
 	apt-get upgrade -y
 else
 	apt-get dist-upgrade -y
@@ -593,16 +597,26 @@ fi
 
 apt-get update
 INSTALL=
-# При обновлении метапакет ядра не ставим (см. apt-get upgrade выше): он тянет новейшее ядро,
-# под которое модуль amneziawg может не собраться
-if [[ "$AZ_UPDATE" == 'y' ]]; then
-	:
-elif [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
+# Метапакеты ядра закреплены (apt-mark hold, см. awg-kmod.sh ниже): ядро меняет только этот скрипт.
+# Новейшее ядро ставится и при установке, и при --update, а awg-kmod.sh prune удаляет его, если
+# под него не собрался модуль AmneziaWG - тогда сервер остаётся на текущем ядре с модулем
+if [[ "$OS" == 'ubuntu' ]] && (( VERSION < 26 )); then
+	KERNEL_META="linux-generic-hwe-${VERSION}.04 linux-image-generic-hwe-${VERSION}.04 linux-headers-generic-hwe-${VERSION}.04"
 	INSTALL="linux-generic-hwe-${VERSION}.04"
-elif [[ "$OS" == 'debian' ]] && (( VERSION < 14 )); then
+elif [[ "$OS" == 'ubuntu' ]]; then
+	KERNEL_META="linux-generic linux-image-generic linux-headers-generic"
+	INSTALL="linux-generic"
+elif (( VERSION < 14 )); then
+	KERNEL_META="linux-image-$ARCH linux-headers-$ARCH"
 	INSTALL="-t $CODENAME-backports linux-image-$ARCH linux-headers-$ARCH"
+else
+	KERNEL_META="linux-image-$ARCH linux-headers-$ARCH"
+	INSTALL="linux-image-$ARCH linux-headers-$ARCH"
 fi
-apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2
+apt-mark unhold $KERNEL_META &>/dev/null || true
+apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms
+# Заголовки текущего ядра для сборки модуля AmneziaWG; старого ядра в репозитории может уже не быть
+apt-get install -y "linux-headers-$(uname -r)" || true
 apt-get autoremove --purge -y
 apt-get clean
 
@@ -642,7 +656,8 @@ git clone https://github.com/paulc/dnslib.git /tmp/dnslib
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --force-reinstall --user /tmp/dnslib
 
 rm -rf /tmp/antizapret
-git clone https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/antizapret
+# AZ_BRANCH - ветка форка для проверки изменений до слияния в main
+git clone -b "${AZ_BRANCH:-main}" https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/antizapret
 
 cp /root/antizapret/config/*.txt /tmp/antizapret/setup/root/antizapret/config/ || true
 cp /root/antizapret/custom*.sh /tmp/antizapret/setup/root/antizapret/ || true
@@ -763,6 +778,30 @@ rm -rf /root/antizapret
 cp -r /tmp/antizapret/setup/* /
 rm -rf /tmp/dnslib
 rm -rf /tmp/antizapret
+
+# Модуль ядра AmneziaWG для AmneziaWG 2 и 3: шифрование в ядре быстрее amneziawg-go (на 1-2 vCPU
+# скорость VPN упирается в процессор). Без модуля всё работает через amneziawg-go, только медленнее.
+# Ядра новее текущего, под которые модуль не собрался, удаляются (иначе после перезагрузки сервер
+# остался бы без модуля), метапакеты ядра закрепляются: автообновления ядро не трогают
+/root/antizapret/awg-kmod/awg-kmod.sh install || true
+/root/antizapret/awg-kmod/awg-kmod.sh prune || true
+# Ядро, с которым сервер загрузится (новейшее установленное)
+AWG_BOOT_KERNEL="$(ls /boot | sed -n 's/^vmlinuz-//p' | sort -V | tail -1)"
+/root/antizapret/awg-kmod/awg-kmod.sh has && AWG_KMOD=y || AWG_KMOD=n
+apt-mark hold $KERNEL_META &>/dev/null || true
+cat > /etc/apt/apt.conf.d/51az-kernel-hold <<'EOF'
+// AntiZapret: ядро обновляет только setup.sh --update - он проверяет, что под новое ядро собирается модуль AmneziaWG
+Unattended-Upgrade::Package-Blacklist { "linux-"; };
+EOF
+if [[ "$AWG_KMOD" == 'y' ]]; then
+	# Загруженный модуль (старый или из PPA) меняем на новый: интерфейсы AmneziaWG 2 уже остановлены
+	# выше (disable --now), AmneziaWG 3 перезапускается ниже
+	systemctl stop awg3@awg1 2>/dev/null || true
+	modprobe -r amneziawg 2>/dev/null || true
+fi
+if ! /root/antizapret/awg-kmod/awg-kmod.sh has "$AWG_BOOT_KERNEL"; then
+	AWG_KMOD_WARNING="\n\e[1;33mAmneziaWG kernel module is not built for kernel $AWG_BOOT_KERNEL, AmneziaWG uses amneziawg-go (slower). See /var/log/awg-kmod.log\e[0m\n"
+fi
 
 # Обфускация AmneziaWG 2: в шаблонах Jc/Jmin/Jmax/S1-S4/H1-H4 - одни и те же
 # магические числа на КАЖДОЙ установке AntiZapret (и одинаковые сразу у обоих
@@ -1018,7 +1057,7 @@ systemctl enable awg3@awg1
 systemctl restart awg3@awg1
 fi
 
-ERRORS=
+ERRORS="$AWG_KMOD_WARNING"
 
 if [[ "$OPENVPN_PATCH" != '1' ]]; then
 	if ! /root/antizapret/patch-openvpn.sh "$OPENVPN_PATCH"; then
@@ -1050,7 +1089,8 @@ fi
 echo
 if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# Обновление без перезагрузки: службы, остановленные в начале (systemctl disable --now),
-	# запускаем заново. Ядро и модули не менялись, клиенты переподключатся сами.
+	# запускаем заново, клиенты переподключатся сами. Новое ядро (если поставилось и под него собрался
+	# модуль AmneziaWG) включится при следующей перезагрузке.
 	systemctl daemon-reload
 	systemctl restart kresd@1 kresd@2
 	systemctl restart antizapret
@@ -1060,6 +1100,9 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	done
 	echo
 	echo -e '\e[1;32mAntiZapret VPN + full VPN updated successfully!\e[0m'
+	if [[ -n "$AWG_BOOT_KERNEL" && "$AWG_BOOT_KERNEL" != "$(uname -r)" ]]; then
+		echo -e "\e[1;33mNew kernel $AWG_BOOT_KERNEL (with AmneziaWG module) is installed, reboot the server when convenient\e[0m"
+	fi
 	exit 0
 fi
 echo -e '\e[1;32mAntiZapret VPN + full VPN installed successfully!\e[0m'
