@@ -185,6 +185,8 @@ route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-r
 
 	echo -n ", $FAKE_IP.0.0/15" > result/ips
 	awk '{printf ", %s", $0}' result/route-ips.txt >> result/ips
+	# TP-Link (штатный WireGuard-клиент): та же строка AllowedIPs, что в клиентских конфигах WireGuard
+	echo "AllowedIPs = $IP.29.8.0/24$(cat result/ips)" > result/tp-link-wireguard-allowedips.txt
 
 	if [[ -f result/ips ]] && ! diff -q result/ips /etc/wireguard/ips; then
 		cp -f result/ips /etc/wireguard/ips
