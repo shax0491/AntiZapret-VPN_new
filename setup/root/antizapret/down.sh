@@ -133,6 +133,9 @@ for v in 1240 1380; do
 done
 while iptables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
 while iptables -w -t mangle -D OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null; do :; done
+for v in $(iptables -w -t mangle -S FORWARD | grep -oP '^-A FORWARD -i warp\+ .*--set-mss \K[0-9]+'); do
+	iptables -w -t mangle -D FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss $v
+done
 ip6tables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -D OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
