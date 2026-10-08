@@ -438,6 +438,25 @@ iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS
 # падает до килобит. Урезаем MSS ответов из WARP под его MTU.
 WARP_MSS=$(( ${WARP_MTU:-1280} - 40 ))
 iptables -w -t mangle -C FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$WARP_MSS" 2>/dev/null || iptables -w -t mangle -A FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$WARP_MSS"
+
+# Очередь fq (net.core.default_qdisc=fq) пропускает не больше flow_limit=100 пакетов на поток.
+# Туннель WireGuard/AmneziaWG на модуле ядра - один поток UDP на клиента без притормаживания
+# сокетом, как у amneziawg-go: пачка больше 100 пакетов обрезается (FQ_FLOW_LIMIT), скорость
+# скачет и падает. Поднимаем лимит на внешних интерфейсах (на mq - в каждой очереди).
+raise_fq_flow_limit() {
+	local dev="$1" parent
+	[[ -n "$dev" ]] && ip link show dev "$dev" &>/dev/null || return 0
+	if tc qdisc show dev "$dev" | grep -q '^qdisc mq '; then
+		for parent in $(tc qdisc show dev "$dev" | grep '^qdisc fq ' | grep -oP 'parent \K\S+'); do
+			tc qdisc replace dev "$dev" parent "$parent" fq flow_limit 10000 limit 20000 2>/dev/null || true
+		done
+	elif tc qdisc show dev "$dev" | grep -q '^qdisc fq .* root '; then
+		tc qdisc replace dev "$dev" root fq flow_limit 10000 limit 20000 2>/dev/null || true
+	fi
+}
+for dev in $(printf '%s\n' "$DEFAULT_INTERFACE" "$ANTIZAPRET_OUT_INTERFACE" "$VPN_OUT_INTERFACE" | sort -u); do
+	raise_fq_flow_limit "$dev"
+done
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
