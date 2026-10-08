@@ -166,6 +166,12 @@ iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 -p tcp --dport 53 -j DNAT --to
 # VPN DNS redirection to Knot Resolver
 iptables -w -t nat -D PREROUTING -s $IP.28.0.0/16 -p udp --dport 53 -j DNAT --to-destination 127.2.2.2
 iptables -w -t nat -D PREROUTING -s $IP.28.0.0/16 -p tcp --dport 53 -j DNAT --to-destination 127.2.2.2
+# Учёт DNS-запросов клиентов к чужим DNS (см. up.sh)
+for DNS_PROTO in udp tcp; do
+	for DNS_SRC in $IP.29.0.0/16 $IP.28.0.0/16; do
+		while iptables -w -t mangle -D PREROUTING -s $DNS_SRC ! -d $IP.28.0.0/15 -p $DNS_PROTO --dport 53 -m comment --comment az-dns-foreign; do :; done
+	done
+done
 # Restrict forwarding
 iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 ! -d $FAKE_IP.0.0/15 -j CONNMARK --set-mark 0x1
 # Mapping fake IP to real IP

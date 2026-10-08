@@ -460,6 +460,13 @@ if [[ "$VPN_DNS" == '1' ]]; then
 	iptables -w -t nat -A PREROUTING -s $IP.28.0.0/16 -p udp --dport 53 -j DNAT --to-destination 127.2.2.2
 	iptables -w -t nat -A PREROUTING -s $IP.28.0.0/16 -p tcp --dport 53 -j DNAT --to-destination 127.2.2.2
 fi
+# Учёт DNS-запросов клиентов к чужим DNS (1.1.1.1, 8.8.8.8 и т.п.), а не к DNS туннеля: правила без
+# цели, только счётчики для панели (Warp Geo -> DNS). mangle идёт раньше DNAT выше, поэтому видит
+# исходный адрес назначения. Так видны устройства и роутеры, которые резолвят не через DNS туннеля
+for DNS_PROTO in udp tcp; do
+	iptables -w -t mangle -A PREROUTING -s $IP.29.0.0/16 ! -d $IP.28.0.0/15 -p $DNS_PROTO --dport 53 -m comment --comment az-dns-foreign
+	iptables -w -t mangle -A PREROUTING -s $IP.28.0.0/16 ! -d $IP.28.0.0/15 -p $DNS_PROTO --dport 53 -m comment --comment az-dns-foreign
+done
 if [[ "$RESTRICT_FORWARD" == 'y' ]]; then
 	iptables -w -t nat -A PREROUTING -s $IP.29.0.0/16 ! -d $FAKE_IP.0.0/15 -j CONNMARK --set-mark 0x1
 fi
