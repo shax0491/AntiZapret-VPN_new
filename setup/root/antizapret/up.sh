@@ -420,14 +420,18 @@ fi
 iptables -w -I INPUT 2 -i $DEFAULT_INTERFACE -m set --match-set antizapret-deny src -j DROP
 
 # mangle
-# --clamp-mss-to-pmtu полагается на ядерный PMTU discovery через ICMP "Fragmentation needed",
-# а эти ICMP часто режутся по пути (провайдер/ТСПУ) - PMTUD "чернеет", и тяжёлые пакеты в
-# туннеле молча теряются вместо фрагментации. Вместо этого явно клэмпим MSS под MTU,
-# определённый в setup.sh пробингом (ping -M do к 1.1.1.1) минус оверхед туннеля.
+# MSS = меньшее из двух (TCPMSS только уменьшает):
+# - потолок MTU-40, где MTU измерен в setup.sh пробингом пути (ping -M do к 1.1.1.1), - на случай
+#   узкого пути между клиентом и сервером, о котором ядро не знает;
+# - --clamp-mss-to-pmtu, как у апстрима: MTU интерфейса, куда реально уходит пакет. Это WARP/Proton
+#   (1280-1324), AWG 2/3 с MTU 1280 и т.п. Без него сегменты под 1420 не лезли в эти туннели и
+#   держались на ICMP "Fragmentation needed", которые через WARP теряются - скорость падала до килобит.
 VPN_MSS=$(( ${MTU:-1420} - 40 ))
 # правило добавляется только если его ещё нет: раньше каждый запуск дописывал копию без проверки
 iptables -w -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS" 2>/dev/null || iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
 iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS" 2>/dev/null || iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
+iptables -w -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
