@@ -115,7 +115,8 @@ kernel_newer() {
 prune() {
 	local RUNNING K KBASE PKGS
 	RUNNING="$(uname -r)"
-	for K in $(ls /lib/modules); do
+	for K in /lib/modules/*/; do
+		K="$(basename "$K")"
 		[[ -d "/lib/modules/$K/kernel" ]] || continue
 		kernel_newer "$K" "$RUNNING" || continue
 		has "$K" && continue
@@ -137,7 +138,8 @@ case "${1:-}" in
 		install_hook
 		RC=0
 		# Старые ядра не загружаются (загрузчик берёт новейшее), собирать под них незачем
-		for K in $(ls /lib/modules); do
+		for K in /lib/modules/*/; do
+			K="$(basename "$K")"
 			[[ -d "/lib/modules/$K/build" ]] || continue
 			[[ "$K" == "$(uname -r)" ]] || kernel_newer "$K" "$(uname -r)" || continue
 			build "$K" || { [[ "$K" == "$(uname -r)" ]] && RC=1; }
