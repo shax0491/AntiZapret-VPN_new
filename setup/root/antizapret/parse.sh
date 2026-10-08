@@ -338,22 +338,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sleep 5
 	fi
 
-	if [[ "$ANTIZAPRET_WARP" == '3' ]]; then
-		cp temp/proxy.rpz temp/warp.rpz
-	else
-		echo -e '$TTL 10800\n@ SOA . . (1 1 1 1 10800)' > temp/warp.rpz
-	fi
-	sed '/^\.$/ s/.*/*. CNAME ./; t; s/$/ CNAME ./; p; s/^/*./' result/include-warp-hosts.txt >> temp/warp.rpz
-	sed '/^\.$/ s/.*/*. CNAME rpz-passthru./; t; s/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-warp-hosts.txt >> temp/warp.rpz
-	sed 's/\r//g; /^;/d; /^$/d' config/*warp-rpz.txt >> temp/warp.rpz
-	cp temp/warp.rpz result/warp.rpz
-
-	if [[ -f result/warp.rpz ]] && ! diff -q result/warp.rpz /etc/knot-resolver/warp.rpz; then
-		purge_changed_names /etc/knot-resolver/warp.rpz result/warp.rpz /run/knot-resolver/control/1 'warp.rpz'
-		cp -f result/warp.rpz /etc/knot-resolver/warp.rpz.tmp
-		mv -f /etc/knot-resolver/warp.rpz.tmp /etc/knot-resolver/warp.rpz
-		sleep 5
-	fi
+	./warp-rpz.sh
 
 	if [[ "$1" != 'noclear' && "$1" != 'noclean' ]]; then
 		count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/1 | grep -oE '[0-9]+' || echo 0)"
