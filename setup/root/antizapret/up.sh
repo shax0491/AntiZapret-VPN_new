@@ -432,6 +432,12 @@ iptables -w -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-
 iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS" 2>/dev/null || iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$VPN_MSS"
 iptables -w -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || iptables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+# Обратное направление через WARP: SYN-ACK от сайта приходит из warp-* и уходит клиенту в туннель
+# 1420, clamp-mss-to-pmtu урезает его только до 1380, и клиент шлёт в WARP (1280-1324) слишком
+# большие сегменты. Если ICMP "Fragmentation needed" до клиента не доходит, отправка с устройства
+# падает до килобит. Урезаем MSS ответов из WARP под его MTU.
+WARP_MSS=$(( ${WARP_MTU:-1280} - 40 ))
+iptables -w -t mangle -C FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$WARP_MSS" 2>/dev/null || iptables -w -t mangle -A FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$WARP_MSS"
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
