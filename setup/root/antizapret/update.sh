@@ -33,6 +33,10 @@ UPDATE_PATH=update.sh
 PARSE_LINK=$FORK_BASE/parse.sh
 PARSE_PATH=parse.sh
 
+# parse.sh вызывает warp-rpz.sh: качаем вместе, иначе новый parse.sh на старой установке без него
+WARP_RPZ_LINK=$FORK_BASE/warp-rpz.sh
+WARP_RPZ_PATH=warp-rpz.sh
+
 DOALL_LINK=$FORK_BASE/doall.sh
 DOALL_PATH=doall.sh
 
@@ -208,6 +212,7 @@ function download {
 # гасит только return, а не explicit exit.
 download $UPDATE_PATH $UPDATE_LINK y || true
 download $PARSE_PATH $PARSE_LINK y || true
+download $WARP_RPZ_PATH $WARP_RPZ_LINK y || true
 download $DOALL_PATH $DOALL_LINK y || true
 
 source setup
