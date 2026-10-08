@@ -1093,6 +1093,8 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# Обновление без перезагрузки: службы, остановленные в начале (systemctl disable --now),
 	# запускаем заново, клиенты переподключатся сами. Новое ядро (если поставилось и под него собрался
 	# модуль AmneziaWG) включится при следующей перезагрузке.
+	# Новые sysctl из 99-antizapret.conf: без перезагрузки они сами не применятся
+	sysctl --system >/dev/null 2>&1 || true
 	systemctl daemon-reload
 	systemctl restart kresd@1 kresd@2
 	systemctl restart antizapret
