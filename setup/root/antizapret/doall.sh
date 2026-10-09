@@ -13,6 +13,7 @@ if [[ "$SUM1" != "$SUM2" ]]; then
 	cat update.sh | bash -s "$1"
 fi
 ./parse.sh "$1"
+[[ -x cdn-pin.sh ]] && { ./cdn-pin.sh || true; }
 ./custom-doall.sh "$1" || true
 
 echo "Execution time: $SECONDS seconds"
