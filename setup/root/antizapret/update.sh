@@ -37,6 +37,10 @@ PARSE_PATH=parse.sh
 WARP_RPZ_LINK=$FORK_BASE/warp-rpz.sh
 WARP_RPZ_PATH=warp-rpz.sh
 
+# Проверка узлов CDN для kresd@2 (вызывается из doall.sh и по своему таймеру)
+CDN_PIN_LINK=$FORK_BASE/cdn-pin.sh
+CDN_PIN_PATH=cdn-pin.sh
+
 DOALL_LINK=$FORK_BASE/doall.sh
 DOALL_PATH=doall.sh
 
@@ -213,6 +217,7 @@ function download {
 download $UPDATE_PATH $UPDATE_LINK y || true
 download $PARSE_PATH $PARSE_LINK y || true
 download $WARP_RPZ_PATH $WARP_RPZ_LINK y || true
+download $CDN_PIN_PATH $CDN_PIN_LINK y || true
 download $DOALL_PATH $DOALL_LINK y || true
 
 source setup
