@@ -121,8 +121,6 @@ WHATSAPP_IPS_PATH=download/whatsapp-ips.txt
 ROBLOX_IPS_LINK=$FORK_BASE/download/roblox-ips.txt
 ROBLOX_IPS_PATH=download/roblox-ips.txt
 
-PROXY=https://proxy.cors.sh/
-
 function download {
 	local path="${1}"
 	local tmp_path="${path}.tmp"
@@ -159,13 +157,6 @@ function download {
 		fi
 	fi
 
-	if [[ $ok -eq 0 ]]; then
-		log "  trying via CORS proxy fallback..."
-		if curl -fsSL --connect-timeout 15 --max-time 300 "$PROXY$link" -o "$tmp_path"; then
-			ok=1
-		fi
-	fi
-
 	if [[ $ok -eq 1 ]]; then
 		if [[ ! -s "$tmp_path" ]]; then
 			log "  ERROR: downloaded file is empty: $path"
@@ -174,8 +165,8 @@ function download {
 			log "  ERROR: downloaded file looks like an HTML error page: $path"
 			ok=0
 		elif [[ "$path" == *.sh ]] && grep -q $'\r' "$tmp_path"; then
-			# Источники сами по себе (GitHub/jsDelivr) отдают чистый LF, но сторонний
-			# CORS-прокси fallback наблюдался отдающим CRLF - молча ломает bash
+			# Источники сами по себе (GitHub/jsDelivr) отдают чистый LF, но прежний сторонний
+			# CORS-прокси (убран, как у апстрима) наблюдался отдающим CRLF - молча ломает bash
 			# ("log() {\r" -> syntax error) на исполнении, не при скачивании, поэтому
 			# без этой проверки проблема всплывает не сразу и не здесь.
 			log "  WARNING: $path downloaded with CRLF line endings, normalizing to LF"
