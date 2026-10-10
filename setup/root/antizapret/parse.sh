@@ -352,6 +352,15 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	fi
 fi
 
+# WARP со временем начинает тупить, переподключение лечит (апстрим 34ee7cf0); конфиги не меняются.
+# Правило kresd@2 -> таблица WARP (up.sh) от интерфейса не зависит и переживает переподключение
+for iface in warp-antizapret warp-vpn; do
+	if [[ -f "/etc/wireguard/$iface.conf" ]] && ip link show dev $iface &>/dev/null; then
+		wg-quick down $iface 2>/dev/null && wg-quick up $iface 2>/dev/null
+		echo "Reconnect $iface"
+	fi
+done
+
 ./custom-parse.sh "$1" || true
 
 exit 0

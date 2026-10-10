@@ -359,13 +359,14 @@ echo '    3) Yandex *         - Use if previous choice fails to resolve domains'
 echo '    4) Google *         - Use if previous choice fails to resolve domains'
 echo '    5) AdGuard *        - Use for blocking ads, trackers, malware and phishing websites'
 echo '    6) Comss **         - More details: https://comss.ru/disqus/page.php?id=7315'
-echo '    7) XBox **          - More details: https://xbox-dns.ru'
-echo '    8) GeoHide **       - More details: https://geohide.ru'
+echo '    7) GeoHide **       - More details: https://geohide.ru'
 echo '  * - DNS resolvers support EDNS Client Subnet'
 echo ' ** - Enable additional proxying and hide this server IP on some internet resources'
 echo '      Use only if this server is geolocated in Russia or problems accessing some internet resources'
+# XBox убран из меню (апстрим: на него наехал РКН, ИИ больше не проксирует). 8 принимается как
+# старый номер GeoHide из прежних установок: kresd.conf трактует и 7, и 8 как GeoHide
 until [[ "$ANTIZAPRET_DNS" =~ ^[1-8]$ ]]; do
-	read -rp 'DNS choice [1-8]: ' -e -i 1 ANTIZAPRET_DNS
+	read -rp 'DNS choice [1-7]: ' -e -i 1 ANTIZAPRET_DNS
 done
 echo
 echo -e 'Choose DNS resolvers for \e[1;32mfull VPN\e[0m (vpn-*):'
@@ -376,14 +377,14 @@ echo '    4) Yandex *     - Use if previous choice fails to resolve domains'
 echo '    5) Google *     - Use if previous choice fails to resolve domains'
 echo '    6) AdGuard *    - Use for blocking ads, trackers, malware and phishing websites'
 echo '    7) Comss **     - More details: https://comss.ru/disqus/page.php?id=7315'
-echo '    8) XBox **      - More details: https://xbox-dns.ru'
-echo '    9) GeoHide **   - More details: https://geohide.ru'
+echo '    8) GeoHide **   - More details: https://geohide.ru'
 echo
 echo '  * - DNS resolvers support EDNS Client Subnet'
 echo ' ** - Enable additional proxying and hide this server IP on some internet resources'
 echo '      Use only if this server is geolocated in Russia or problems accessing some internet resources'
+# 9 - старый номер GeoHide (до удаления XBox), принимается для совместимости
 until [[ "$VPN_DNS" =~ ^[1-9]$ ]]; do
-	read -rp 'DNS choice [1-9]: ' -e -i 1 VPN_DNS
+	read -rp 'DNS choice [1-8]: ' -e -i 1 VPN_DNS
 done
 echo
 until [[ "$ANTIZAPRET_ADBLOCK" =~ (y|n) ]]; do
@@ -937,10 +938,7 @@ elif [[ "$VPN_DNS" == '6' ]]; then
 elif [[ "$VPN_DNS" == '7' ]]; then
 	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 83.220.169.155"\npush "dhcp-option DNS 212.109.195.93"\npush "dhcp-option DNS 195.133.25.16"' /etc/openvpn/server/vpn*.conf
 	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/83.220.169.155, 212.109.195.93, 195.133.25.16/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
-elif [[ "$VPN_DNS" == '8' ]]; then
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 111.88.96.50"\npush "dhcp-option DNS 111.88.96.51"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/111.88.96.50, 111.88.96.51/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
-elif [[ "$VPN_DNS" == '9' ]]; then
+elif [[ "$VPN_DNS" == '8' || "$VPN_DNS" == '9' ]]; then
 	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 193.233.112.67"\npush "dhcp-option DNS 193.233.112.68"\npush "dhcp-option DNS 45.155.204.190"\npush "dhcp-option DNS 37.230.192.51"' /etc/openvpn/server/vpn*.conf
 	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/193.233.112.67, 193.233.112.68, 45.155.204.190, 37.230.192.51/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
 fi

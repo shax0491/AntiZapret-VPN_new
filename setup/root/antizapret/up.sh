@@ -86,7 +86,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
-			wg-quick up $ANTIZAPRET_WARP_PATH 2>/dev/null
+			wg-quick up $ANTIZAPRET_WARP_INTERFACE 2>/dev/null
 
 			if [[ $? -eq 0 ]]; then
 				echo "Started $ANTIZAPRET_WARP_INTERFACE via Proton VPN: $ANTIZAPRET_WARP_ENDPOINT connected"
@@ -135,7 +135,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
-		wg-quick up $ANTIZAPRET_WARP_PATH 2>/dev/null
+		wg-quick up $ANTIZAPRET_WARP_INTERFACE 2>/dev/null
 
 		if [[ $? -eq 0 ]]; then
 			echo "Started $ANTIZAPRET_WARP_INTERFACE: $ANTIZAPRET_WARP_ENDPOINT connected"
@@ -191,7 +191,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
-			wg-quick up $VPN_WARP_PATH 2>/dev/null
+			wg-quick up $VPN_WARP_INTERFACE 2>/dev/null
 
 			if [[ $? -eq 0 ]]; then
 				echo "Started $VPN_WARP_INTERFACE via Proton VPN: $VPN_WARP_ENDPOINT connected"
@@ -240,7 +240,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
-		wg-quick up $VPN_WARP_PATH 2>/dev/null
+		wg-quick up $VPN_WARP_INTERFACE 2>/dev/null
 
 		if [[ $? -eq 0 ]]; then
 			echo "Started $VPN_WARP_INTERFACE: $VPN_WARP_ENDPOINT connected"
@@ -274,7 +274,7 @@ KRESD2_OUT_FILE=/etc/knot-resolver/outgoing2.lua
 KRESD2_WARP_IP=''
 KRESD2_WARP_TABLE=''
 # Через WARP пускаем только зарубежные наборы DNS (2 Cloudflare/Quad9/ControlD/UltraDNS, 4 Google,
-# 5 AdGuard): российские (1 MSK-IX/НСДИ/ТТК, 3 Яндекс, 6-8 Comss/XBox/GeoHide) с зарубежного
+# 5 AdGuard): российские (1 MSK-IX/НСДИ/ТТК, 3 Яндекс, 6-8 Comss/GeoHide) с зарубежного
 # адреса WARP отвечают нестабильно или не отвечают вовсе
 case "$(grep -oP '^local dns2 = \K[0-9]+' /etc/knot-resolver/kresd.conf 2>/dev/null)" in
 	2|4|5)
