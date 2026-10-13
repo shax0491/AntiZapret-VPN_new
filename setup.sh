@@ -1054,7 +1054,10 @@ install -m 755 /root/antizapret/awg3/awg3-up.sh /usr/local/sbin/awg3-up.sh
 install -m 644 /root/antizapret/awg3/awg3@.service /etc/systemd/system/awg3@.service
 systemctl daemon-reload
 systemctl enable awg3@awg1
-systemctl restart awg3@awg1
+# awg3-rules.sh берёт цепочки iptables, которые создаёт antizapret.service; при чистой установке он стартует только после перезагрузки
+if systemctl is-active --quiet antizapret; then
+	systemctl restart awg3@awg1
+fi
 fi
 
 ERRORS="$AWG_KMOD_WARNING"
