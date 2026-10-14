@@ -300,6 +300,60 @@ else
 	rm -f $KRESD2_OUT_FILE
 fi
 
+# WARP DNS
+DNS_WARP_INTERFACE=warp-dns
+DNS_WARP_PATH="/etc/wireguard/$DNS_WARP_INTERFACE.conf"
+
+if [[ "$DNS_WARP" == '2' ]]; then
+	set +e
+	echo "Starting $DNS_WARP_INTERFACE..."
+	if [[ -z "$DNS_WARP_PRIVATE_KEY" || -z "$DNS_WARP_PUBLIC_KEY" || -z "$DNS_WARP_ENDPOINT" || -z "$DNS_WARP_ADDRESS" ]]; then
+		DNS_WARP_PRIVATE_KEY=$(wg genkey)
+		KEY=$(echo "$DNS_WARP_PRIVATE_KEY" | wg pubkey)
+		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+			-H 'Content-Type: application/json' \
+			-d "{\"key\": \"$KEY\"}")
+
+		DNS_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
+		DNS_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+		DNS_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
+	fi
+	DNS_WARP_IP="${DNS_WARP_ADDRESS%%/*}"
+	DNS_WARP_UID="$(id -u knot-resolver)"
+
+	echo "[Interface]
+PrivateKey = $DNS_WARP_PRIVATE_KEY
+Address = $DNS_WARP_ADDRESS
+MTU = $WARP_MTU
+Table = 3000
+PostUp = ip rule add uidrange $DNS_WARP_UID-$DNS_WARP_UID to $IP.28.0.0/15 lookup main priority 5000 || true
+PostUp = ip rule add uidrange $DNS_WARP_UID-$DNS_WARP_UID lookup 3000 priority 10000 || true
+PostDown = ip rule del uidrange $DNS_WARP_UID-$DNS_WARP_UID to $IP.28.0.0/15 lookup main priority 5000
+PostDown = ip rule del uidrange $DNS_WARP_UID-$DNS_WARP_UID lookup 3000 priority 10000
+
+[Peer]
+PublicKey = $DNS_WARP_PUBLIC_KEY
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 15
+Endpoint = $DNS_WARP_ENDPOINT" > $DNS_WARP_PATH
+
+	wg-quick up $DNS_WARP_INTERFACE 2>/dev/null
+
+	if [[ $? -eq 0 ]]; then
+		echo "Started $DNS_WARP_INTERFACE: $DNS_WARP_ENDPOINT connected"
+		if [[ -z "$DNS_WARP_IP" ]]; then
+			iptables -w -t nat -A POSTROUTING -o $DNS_WARP_INTERFACE -j MASQUERADE
+		else
+			iptables -w -t nat -A POSTROUTING -o $DNS_WARP_INTERFACE -j SNAT --to-source $DNS_WARP_IP
+		fi
+	else
+		echo "Starting $DNS_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
+	fi
+	set -e
+else
+	rm -f $DNS_WARP_PATH
+fi
+
 # filter
 iptables -w -P INPUT ACCEPT
 iptables -w -P FORWARD ACCEPT

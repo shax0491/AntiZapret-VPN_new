@@ -42,7 +42,7 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# то же значение по умолчанию, что предлагает вопрос ниже: отвечать при --update некому,
 	# и цикл "until ... read" без ввода крутился бы вечно
 	for AZ_DEFAULT in OPENVPN_UDP_ENABLE=y OPENVPN_TCP_ENABLE=n WIREGUARD_ENABLE=y AWG2_MASQUERADE=2 \
-		OPENVPN_PATCH=2 OPENVPN_DCO=y ANTIZAPRET_WARP=2 VPN_WARP=2 WARP_MTU=1280 WARP_PROTECTION=y \
+		OPENVPN_PATCH=2 OPENVPN_DCO=y ANTIZAPRET_WARP=2 VPN_WARP=2 DNS_WARP=1 WARP_MTU=1280 WARP_PROTECTION=y \
 		ANTIZAPRET_DNS=1 VPN_DNS=1 ANTIZAPRET_ADBLOCK=y VPN_ADBLOCK=n ALTERNATIVE_CLIENT_IP=n \
 		ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y \
 		OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y \
@@ -387,6 +387,14 @@ until [[ "$VPN_DNS" =~ ^[1-9]$ ]]; do
 	read -rp 'DNS choice [1-8]: ' -e -i 1 VPN_DNS
 done
 echo
+echo -e 'Choose Cloudflare WARP for \e[1;32mDNS\e[0m outbound queries:'
+echo '    1) None  - Do not use'
+echo '    2) All   - Route all DNS outbound queries'
+echo '               Use if selected DNS resolvers are blocked or unreachable from this server'
+until [[ "$DNS_WARP" =~ ^[1-2]$ ]]; do
+	read -rp 'WARP choice [1-2]: ' -e -i 1 DNS_WARP
+done
+echo
 until [[ "$ANTIZAPRET_ADBLOCK" =~ (y|n) ]]; do
 	read -rp $'Enable blocking ads, trackers, malware and phishing websites in \001\e[1;32m\002AntiZapret VPN\001\e[0m\002 (antizapret-*) based on AdGuard and OISD rules? [y/n]: ' -e -i y ANTIZAPRET_ADBLOCK
 done
@@ -724,6 +732,11 @@ PROTON_VPN_PUBLIC_KEY=$PROTON_VPN_PUBLIC_KEY
 PROTON_VPN_ADDRESS=$PROTON_VPN_ADDRESS
 PROTON_VPN_ENDPOINT_HOST=$PROTON_VPN_ENDPOINT_HOST
 PROTON_VPN_ENDPOINT_PORT=$PROTON_VPN_ENDPOINT_PORT
+DNS_WARP=$DNS_WARP
+DNS_WARP_PRIVATE_KEY=$DNS_WARP_PRIVATE_KEY
+DNS_WARP_PUBLIC_KEY=$DNS_WARP_PUBLIC_KEY
+DNS_WARP_ENDPOINT=$DNS_WARP_ENDPOINT
+DNS_WARP_ADDRESS=$DNS_WARP_ADDRESS
 ANTIZAPRET_DNS=$ANTIZAPRET_DNS
 VPN_DNS=$VPN_DNS
 ANTIZAPRET_ADBLOCK=$ANTIZAPRET_ADBLOCK
@@ -959,6 +972,7 @@ else
 	find /etc/amneziawg -maxdepth 1 -name '*.conf' -exec sed -i 's/s = 172\./s = 10\./g' {} +
 fi
 
+# Запрещаем несколько одновременных подключений к OpenVPN для одного клиента
 if [[ "$OPENVPN_DUPLICATE" == 'n' ]]; then
 	sed -i '/duplicate-cn/s/^/#/' /etc/openvpn/server/*.conf
 fi

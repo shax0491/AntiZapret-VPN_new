@@ -3,6 +3,7 @@ set -e
 export LC_ALL=C
 shopt -s nullglob
 
+# Обработка ошибок
 handle_error() {
 	echo "$(lsb_release -ds) $(uname -r) $(date --iso-8601=seconds)"
 	echo -e "\e[1;31mError at line $1: $2\e[0m"
@@ -360,6 +361,14 @@ for iface in warp-antizapret warp-vpn; do
 		echo "Reconnect $iface"
 	fi
 done
+
+# WARP DNS
+DNS_WARP_INTERFACE=warp-dns
+DNS_WARP_PATH="/etc/wireguard/$DNS_WARP_INTERFACE.conf"
+if [[ -f $DNS_WARP_PATH ]]; then
+	wg-quick down $DNS_WARP_INTERFACE 2>/dev/null && wg-quick up $DNS_WARP_INTERFACE 2>/dev/null
+	echo "Reconnect $DNS_WARP_INTERFACE"
+fi
 
 ./custom-parse.sh "$1" || true
 

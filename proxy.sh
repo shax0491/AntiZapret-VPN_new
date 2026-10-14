@@ -66,13 +66,6 @@ echo "    SSH WireGuard:         $WIREGUARD_SSH"
 echo 'More details: https://github.com/shax0491/AntiZapret-VPN_new'
 echo
 
-MTU=$(< /sys/class/net/$DEFAULT_INTERFACE/mtu)
-if (( MTU < 1500 )); then
-	echo "Warning! Low MTU on $DEFAULT_INTERFACE: $MTU"
-	echo "Change MTU in OpenVPN and WireGuard configs from 1420 to $((MTU-80)) on AntiZapret VPN server"
-	echo
-fi
-
 # Спрашиваем о настройках
 until [[ "$OPENVPN_UDP" =~ (y|n) ]]; do
 	read -rp 'Enable OpenVPN UDP proxying? [y/n]: ' -e -i y OPENVPN_UDP
