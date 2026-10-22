@@ -3,7 +3,7 @@
 
 Ключ Proton (PrivateKey из профиля) действует на любом сервере Proton, поэтому для смены
 сервера достаточно поменять у пира PublicKey и Endpoint. Скрипт:
-  - раз в 30 минут (таймер) проверяет каждый Proton-туннель: свежий handshake, открывается
+  - раз в 5 минут (таймер) проверяет каждый Proton-туннель: свежий handshake, открывается
     https-сайт, а раз в 6 часов ещё и страну выхода глазами YouTube/Cloudflare (Google считает
     часть адресов Proton российскими - тогда YouTube на узле "RU");
   - при поломке ставит первый рабочий сервер в стране VPS (затем соседние), а раз в 12 часов
@@ -71,12 +71,12 @@ ExecStart=/usr/bin/python3 {exe}
 TimeoutStartSec=900
 """
 TIMER = """[Unit]
-Description=Proton VPN server check every 30 minutes (proton-pick)
+Description=Proton VPN tunnel check every 5 minutes (proton-pick)
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=30min
-RandomizedDelaySec=120
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
 
 [Install]
 WantedBy=timers.target
@@ -463,7 +463,7 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
     optimize = force or now - ist.get("opt_t", 0) > OPTIMIZE_EVERY
     if not reason and not optimize:
         return "ok"
-    # Всё перепробовано и не подошло (например, ключ отозван) - не перебираем каждые 30 минут
+    # Всё перепробовано и не подошло (например, ключ отозван) - не перебираем каждые 5 минут
     if reason and not force and now - ist.get("fail_t", 0) < FAIL_BACKOFF:
         return f"{reason}; следующая попытка подбора после {time.strftime('%H:%M', time.localtime(ist['fail_t'] + FAIL_BACKOFF))}"
     ist["opt_t"] = now
@@ -495,7 +495,7 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
             g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
             if good and geo_ok(g):
                 persist(iface, s, ep, cur["port"])
-                # подобран первый рабочий - на следующем запуске (через 30 минут) выбрать по скорости
+                # подобран первый рабочий - на следующем запуске (через 5 минут) выбрать по скорости
                 ist.update(server=s["name"], entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
                            switched=time.strftime("%F %T"), rtt=round(rtt, 1), fail_t=0, opt_t=0)
                 return f"переключён на {s['name']} ({ep['entry_ip']}, выход {g['ip']}, YouTube {g['yt']}, {rtt:.0f} мс)" + (f"; причина: {reason}" if reason else "")
