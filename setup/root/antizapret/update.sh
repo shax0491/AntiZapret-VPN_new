@@ -57,6 +57,9 @@ DENY_RPZ_PATH=download/deny-rpz.txt
 DENY2_RPZ_LINK=$FORK_BASE/download/deny2-rpz.txt
 DENY2_RPZ_PATH=download/deny2-rpz.txt
 
+DENY3_RPZ_LINK=$FORK_BASE/download/deny3-rpz.txt
+DENY3_RPZ_PATH=download/deny3-rpz.txt
+
 INCLUDE_HOSTS_LINK=$FORK_BASE/download/include-hosts.txt
 INCLUDE_HOSTS_PATH=download/include-hosts.txt
 
@@ -218,6 +221,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	download $DOMAIN2_PATH $DOMAIN2_LINK n || true
 	download $DENY_RPZ_PATH $DENY_RPZ_LINK n || true
 	download $DENY2_RPZ_PATH $DENY2_RPZ_LINK n || true
+	download $DENY3_RPZ_PATH $DENY3_RPZ_LINK n || true
 	download $INCLUDE_HOSTS_PATH $INCLUDE_HOSTS_LINK n || true
 	download $INCLUDE_WARP_HOSTS_PATH $INCLUDE_WARP_HOSTS_LINK n || true
 	download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK n || true
@@ -262,7 +266,7 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	if [[ "$ROBLOX_INCLUDE" == 'y' ]]; then download $ROBLOX_IPS_PATH $ROBLOX_IPS_LINK n || true; else rm -f $ROBLOX_IPS_PATH; fi
 fi
 
-./custom-update.sh "$1" || true
+./custom-update.sh "$@" || true
 
 log "Update finished"
 exit 0

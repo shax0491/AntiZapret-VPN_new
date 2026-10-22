@@ -504,6 +504,7 @@ echo 'Installation, please wait...'
 # возврата что-либо сломать (script в этом месте ещё выполняется без set -e).
 systemctl disable --now kresd@1 2>/dev/null || true
 systemctl disable --now kresd@2 2>/dev/null || true
+systemctl disable --now kresd@3 2>/dev/null || true
 systemctl disable --now antizapret 2>/dev/null || true
 systemctl disable --now antizapret-update.timer 2>/dev/null || true
 systemctl disable --now antizapret-update 2>/dev/null || true
@@ -541,6 +542,56 @@ apt-get purge -y watchdog
 apt-get purge -y pcscd
 apt-get purge -y packagekit
 
+# Апстрим 17.10: ещё лишние на VPS пакеты и службы (удаляются, только если стоят)
+dpkg -s thermald &>/dev/null && apt-get purge -y thermald
+dpkg -s open-iscsi &>/dev/null && apt-get purge -y open-iscsi
+dpkg -s ubuntu-drivers-common &>/dev/null && apt-get purge -y ubuntu-drivers-common
+dpkg -s avahi-daemon &>/dev/null && apt-get purge -y avahi-daemon
+dpkg -s accountsservice &>/dev/null && apt-get purge -y accountsservice
+dpkg -s bolt &>/dev/null && apt-get purge -y bolt
+dpkg -s plymouth &>/dev/null && apt-get purge -y plymouth
+dpkg -s popularity-contest &>/dev/null && apt-get purge -y popularity-contest
+dpkg -s whoopsie &>/dev/null && apt-get purge -y whoopsie
+dpkg -s landscape-common &>/dev/null && apt-get purge -y landscape-common
+dpkg -s canonical-livepatch &>/dev/null && apt-get purge -y canonical-livepatch
+dpkg -s ppp &>/dev/null && apt-get purge -y ppp
+dpkg -s speech-dispatcher &>/dev/null && apt-get purge -y speech-dispatcher
+dpkg -s brltty &>/dev/null && apt-get purge -y brltty
+dpkg -s bluez &>/dev/null && apt-get purge -y bluez
+dpkg -s bluetooth &>/dev/null && apt-get purge -y bluetooth
+dpkg -s wpasupplicant &>/dev/null && apt-get purge -y wpasupplicant
+dpkg -s cups &>/dev/null && apt-get purge -y cups
+dpkg -s cups-browsed &>/dev/null && apt-get purge -y cups-browsed
+dpkg -s cups-client &>/dev/null && apt-get purge -y cups-client
+dpkg -s cups-daemon &>/dev/null && apt-get purge -y cups-daemon
+dpkg -s cups-common &>/dev/null && apt-get purge -y cups-common
+dpkg -s nfs-common &>/dev/null && apt-get purge -y nfs-common
+dpkg -s rpcbind &>/dev/null && apt-get purge -y rpcbind
+dpkg -s cifs-utils &>/dev/null && apt-get purge -y cifs-utils
+dpkg -s ntfs-3g &>/dev/null && apt-get purge -y ntfs-3g
+dpkg -s os-prober &>/dev/null && apt-get purge -y os-prober
+dpkg -s laptop-detect &>/dev/null && apt-get purge -y laptop-detect
+dpkg -s powermgmt-base &>/dev/null && apt-get purge -y powermgmt-base
+dpkg -s xdg-user-dirs &>/dev/null && apt-get purge -y xdg-user-dirs
+dpkg -s update-notifier-common &>/dev/null && apt-get purge -y update-notifier-common
+dpkg -s at &>/dev/null && apt-get purge -y at
+dpkg -s spice-vdagent &>/dev/null && apt-get purge -y spice-vdagent
+dpkg -s libnss-mdns &>/dev/null && apt-get purge -y libnss-mdns
+dpkg -s byobu &>/dev/null && apt-get purge -y byobu
+dpkg -s ubuntu-advantage-tools &>/dev/null && apt-get purge -y ubuntu-advantage-tools
+dpkg -s ubuntu-pro-client &>/dev/null && apt-get purge -y ubuntu-pro-client
+dpkg -s pollinate &>/dev/null && apt-get purge -y pollinate
+dpkg -s secureboot-db &>/dev/null && apt-get purge -y secureboot-db
+#dpkg -s pastebinit &>/dev/null && apt-get purge -y pastebinit
+
+# Отключим ненужные службы
+systemctl disable --now ifupdown-wait-online 2>/dev/null || true
+systemctl disable --now setvtrgb 2>/dev/null || true
+systemctl disable --now e2scrub_reap 2>/dev/null || true
+systemctl disable --now systemd-pstore 2>/dev/null || true
+#systemctl disable --now networkd-dispatcher
+#systemctl disable --now secureboot-db
+
 if [[ "$SSH_PROTECTION" == 'y' ]]; then
 	apt-get purge -y fail2ban || true
 	apt-get purge -y sshguard || true
@@ -548,6 +599,7 @@ fi
 
 rm -rf /var/cache/knot-resolver/*
 rm -rf /var/cache/knot-resolver2/*
+rm -rf /var/cache/knot-resolver3/*
 
 rm -rf /etc/openvpn/server/*
 rm -rf /etc/openvpn/client/*
@@ -663,7 +715,7 @@ make -C /tmp/amneziawg-tools/src install PREFIX=/usr/local
 rm -rf /tmp/amneziawg-go /tmp/amneziawg-tools
 
 rm -rf /tmp/dnslib
-git clone https://github.com/paulc/dnslib.git /tmp/dnslib
+git clone --depth 1 https://github.com/paulc/dnslib.git /tmp/dnslib
 PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --force-reinstall --user /tmp/dnslib
 
 rm -rf /tmp/antizapret
@@ -782,6 +834,7 @@ FAKE_IP=" > /tmp/antizapret/setup/root/antizapret/setup
 
 mkdir -p /var/cache/knot-resolver
 mkdir -p /var/cache/knot-resolver2
+mkdir -p /var/cache/knot-resolver3
 
 find /tmp/antizapret -type f -exec chmod 644 {} +
 find /tmp/antizapret -type d -exec chmod 755 {} +
@@ -789,6 +842,7 @@ find /tmp/antizapret/setup/root/antizapret -type f -exec chmod +x {} +
 find /tmp/antizapret/setup/etc/openvpn/server/scripts -type f -exec chmod +x {} +
 chown -R knot-resolver:knot-resolver /var/cache/knot-resolver
 chown -R knot-resolver:knot-resolver /var/cache/knot-resolver2
+chown -R knot-resolver:knot-resolver /var/cache/knot-resolver3
 
 rm -rf /root/antizapret
 cp -r /tmp/antizapret/setup/* /
@@ -990,6 +1044,7 @@ sed -i -z -E 's/policy\.DENY_MSG\([^)]*kres\.extended_error\.NOTSUP[^)]*\)/polic
 
 systemctl enable kresd@1
 systemctl enable kresd@2
+systemctl enable kresd@3
 systemctl enable antizapret
 systemctl enable antizapret-update.timer
 systemctl enable antizapret-update
@@ -1111,7 +1166,7 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# Новые sysctl из 99-antizapret.conf: без перезагрузки они сами не применятся
 	sysctl --system >/dev/null 2>&1 || true
 	systemctl daemon-reload
-	systemctl restart kresd@1 kresd@2
+	systemctl restart kresd@1 kresd@2 kresd@3
 	systemctl restart antizapret
 	systemctl start antizapret-update.timer
 	for AZ_UNIT in openvpn-server@antizapret-udp openvpn-server@vpn-udp openvpn-server@antizapret-tcp openvpn-server@vpn-tcp wg-quick@antizapret wg-quick@vpn amneziawg@antizapret2 amneziawg@vpn2 awg3@awg1 warpscout-refresh.timer; do

@@ -111,8 +111,8 @@ if [[ "$OLD" != "$NEW" ]]; then
 	else
 		printf '%s' "$LUA" > "$OUT"
 	fi
-	systemctl restart kresd@2
-	echo "kresd@2 restarted"
+	systemctl restart kresd@2 kresd@3
+	echo "kresd@2, kresd@3 restarted"
 fi
 
 # Подменные адреса, уже выданные клиентам и ведущие на неработающий узел

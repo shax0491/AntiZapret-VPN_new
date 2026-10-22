@@ -107,12 +107,12 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 		if [[ -z "$ANTIZAPRET_WARP_PRIVATE_KEY" || -z "$ANTIZAPRET_WARP_PUBLIC_KEY" || -z "$ANTIZAPRET_WARP_ENDPOINT" || -z "$ANTIZAPRET_WARP_ADDRESS" ]]; then
 			ANTIZAPRET_WARP_PRIVATE_KEY=$(wg genkey)
 			KEY=$(echo "$ANTIZAPRET_WARP_PRIVATE_KEY" | wg pubkey)
-			REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+			REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a$RANDOM/reg" \
 				-H 'Content-Type: application/json' \
 				-d "{\"key\": \"$KEY\"}")
 
 			ANTIZAPRET_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-			ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+			ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '(.config.peers[0].endpoint.v4 // .config.peers[0].endpoint.host // .config.peers[0].endpoint) | sub(":0$"; ":2408")')
 			ANTIZAPRET_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 		fi
 		ANTIZAPRET_WARP_IP="${ANTIZAPRET_WARP_ADDRESS%%/*}"
@@ -212,12 +212,12 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 		if [[ -z "$VPN_WARP_PRIVATE_KEY" || -z "$VPN_WARP_PUBLIC_KEY" || -z "$VPN_WARP_ENDPOINT" || -z "$VPN_WARP_ADDRESS" ]]; then
 			VPN_WARP_PRIVATE_KEY=$(wg genkey)
 			KEY=$(echo "$VPN_WARP_PRIVATE_KEY" | wg pubkey)
-			REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+			REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a$RANDOM/reg" \
 				-H 'Content-Type: application/json' \
 				-d "{\"key\": \"$KEY\"}")
 
 			VPN_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-			VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+			VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '(.config.peers[0].endpoint.v4 // .config.peers[0].endpoint.host // .config.peers[0].endpoint) | sub(":0$"; ":2408")')
 			VPN_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 		fi
 		VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
@@ -295,7 +295,9 @@ if [[ -n "$KRESD2_WARP_IP" ]]; then
 	chmod 644 $KRESD2_OUT_FILE.tmp
 	mv -f $KRESD2_OUT_FILE.tmp $KRESD2_OUT_FILE
 	echo "net.outgoing_v4('$KRESD2_WARP_IP')" | socat - /run/knot-resolver/control/2 &>/dev/null || true
-	echo "VPN DNS (kresd@2) via WARP: $KRESD2_WARP_IP, table $KRESD2_WARP_TABLE"
+	# kresd@3 (Proxy DNS для proxy.py) читает тот же outgoing2.lua
+	echo "net.outgoing_v4('$KRESD2_WARP_IP')" | socat - /run/knot-resolver/control/3 &>/dev/null || true
+	echo "VPN DNS (kresd@2, kresd@3) via WARP: $KRESD2_WARP_IP, table $KRESD2_WARP_TABLE"
 else
 	rm -f $KRESD2_OUT_FILE
 fi
@@ -310,12 +312,12 @@ if [[ "$DNS_WARP" == '2' ]]; then
 	if [[ -z "$DNS_WARP_PRIVATE_KEY" || -z "$DNS_WARP_PUBLIC_KEY" || -z "$DNS_WARP_ENDPOINT" || -z "$DNS_WARP_ADDRESS" ]]; then
 		DNS_WARP_PRIVATE_KEY=$(wg genkey)
 		KEY=$(echo "$DNS_WARP_PRIVATE_KEY" | wg pubkey)
-		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+		REG=$(curl -sSfL --connect-timeout 10 -X POST "https://api.cloudflareclient.com/v0a$RANDOM/reg" \
 			-H 'Content-Type: application/json' \
 			-d "{\"key\": \"$KEY\"}")
 
 		DNS_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-		DNS_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+		DNS_WARP_ENDPOINT=$(echo "$REG" | jq -r '(.config.peers[0].endpoint.v4 // .config.peers[0].endpoint.host // .config.peers[0].endpoint) | sub(":0$"; ":2408")')
 		DNS_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 	fi
 	DNS_WARP_IP="${DNS_WARP_ADDRESS%%/*}"
@@ -626,6 +628,8 @@ count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/1 | grep -oE 
 echo "AntiZapret DNS cache cleared: $count entries"
 count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/2 | grep -oE '[0-9]+' || echo 0)"
 echo "VPN DNS cache cleared: $count entries"
+count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/3 | grep -oE '[0-9]+' || echo 0)"
+echo "Proxy DNS cache cleared: $count entries"
 
 # AWG 3.1: правила 10.9.x пересобираются после каждого запуска антизапрета, если интерфейс awg1 поднят
 # (адрес и режим WARP берутся из setup, который только что прочитан)
@@ -633,5 +637,6 @@ if [[ -x /usr/local/sbin/awg3-rules.sh ]] && systemctl is-active --quiet awg3@aw
 	/usr/local/sbin/awg3-rules.sh up || true
 fi
 
-./custom-up.sh
+./custom-up.sh "$@" || true
+
 exit 0

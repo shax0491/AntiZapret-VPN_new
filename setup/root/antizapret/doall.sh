@@ -14,7 +14,7 @@ if [[ "$SUM1" != "$SUM2" ]]; then
 fi
 ./parse.sh "$1"
 [[ -x cdn-pin.sh ]] && { ./cdn-pin.sh || true; }
-./custom-doall.sh "$1" || true
+./custom-doall.sh "$@" || true
 
 echo "Execution time: $SECONDS seconds"
 exit 0

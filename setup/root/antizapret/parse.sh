@@ -3,6 +3,10 @@ set -e
 export LC_ALL=C
 shopt -s nullglob
 
+###
+sed -i '/sndbuf\|rcvbuf/d' /etc/openvpn/server/*.conf
+###
+
 # Обработка ошибок
 handle_error() {
 	echo "$(lsb_release -ds) $(uname -r) $(date --iso-8601=seconds)"
@@ -273,6 +277,16 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sleep 5
 	fi
 
+	# deny3.rpz для kresd@3 (Proxy DNS)
+	echo -e '$TTL 86400\n@ SOA . . (1 1 1 1 86400)' > temp/deny3.rpz
+	sed 's/\r//g; /^;/d; /^$/d' download/*deny3-rpz.txt config/*deny3-rpz.txt >> temp/deny3.rpz
+	cp temp/deny3.rpz result/deny3.rpz
+	if [[ -f result/deny3.rpz ]] && ! diff -q result/deny3.rpz /etc/knot-resolver/deny3.rpz; then
+		cp -f result/deny3.rpz /etc/knot-resolver/deny3.rpz.tmp
+		mv -f /etc/knot-resolver/deny3.rpz.tmp /etc/knot-resolver/deny3.rpz
+		sleep 5
+	fi
+
 	sed -E 's/[\r[:space:]]+//g; /^\.$/!{/^[[:punct:]]/d;}; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*include-hosts.txt config/*include-hosts.txt > temp/include-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*exclude-hosts.txt config/*exclude-hosts.txt | sort -u > temp/exclude-hosts.txt
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d; s/[]_~:/?#\[@!$&'\''()*+,;=].*//; s/.*/\L&/' download/*remove-hosts.txt config/*remove-hosts.txt | sort -u > temp/remove-hosts.txt
@@ -350,6 +364,8 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		echo "AntiZapret DNS cache cleared: $count entries"
 		count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/2 | grep -oE '[0-9]+' || echo 0)"
 		echo "VPN DNS cache cleared: $count entries"
+		count="$(echo 'cache.clear()' | socat - /run/knot-resolver/control/3 | grep -oE '[0-9]+' || echo 0)"
+		echo "Proxy DNS cache cleared: $count entries"
 	fi
 fi
 
@@ -370,6 +386,6 @@ if [[ -f $DNS_WARP_PATH ]]; then
 	echo "Reconnect $DNS_WARP_INTERFACE"
 fi
 
-./custom-parse.sh "$1" || true
+./custom-parse.sh "$@" || true
 
 exit 0
