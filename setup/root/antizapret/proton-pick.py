@@ -45,7 +45,11 @@ SETUP = "/root/antizapret/setup"
 SETUP_PREFIX = {"warp-antizapret": "PROTON_ANTIZAPRET", "warp-vpn": "PROTON_VPN"}
 OPTIMIZE_EVERY = 12 * 3600     # пересмотр выбора с замером скорости (~20 МБ на кандидата)
 SPEED_CANDIDATES = 4           # сколько лучших по пингу и нагрузке замерять по скорости
-SPEED_GAIN = 1.2               # переключаться, если быстрее текущего хотя бы на 20%
+SPEED_GAIN = 1.3               # (speed_optimize, сейчас не используется)
+OPT_GAIN = 0.7                 # без поломки переходить, только если пинг+загрузка лучше на 30% (и на 3+)
+STABLE_AFTER = 3 * 3600        # ключ проработал на сервере столько - сервер «проверенный»
+DEAD_TTL = 24 * 3600           # сервер, на котором туннель умер, не берём сутки
+DEAD_STABLE_TTL = 3600         # а проверенный - час (скорее сбой самого сервера)
 GEO_EVERY = 6 * 3600           # проверка страны выхода у работающего туннеля
 BAD_EXIT_TTL = 7 * 86400       # адрес выхода, который Google считает российским, не берём неделю
 BAD_GEO = {"RU", "BY"}
@@ -348,7 +352,7 @@ def ping(ip: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str) -> list[tuple]:
+def candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str, dead: set[str] = frozenset()) -> list[tuple]:
     tiers = {t.strip().lower() for t in cfg.get("TIERS", "Plus").split(",")}
     bad = {ip for ip, t in st.get("bad_exits", {}).items() if time.time() - t < BAD_EXIT_TTL}
     items = []
@@ -359,7 +363,8 @@ def candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str)
         if feats & {"securecore", "secure_core", "secure-core", "tor"} or s.get("entry_country", country) != country:
             continue
         for ep in s.get("endpoints", []):
-            if ep.get("online") and ep.get("public_key") and ep.get("entry_ip") and ep.get("exit_ip") not in bad:
+            if (ep.get("online") and ep.get("public_key") and ep.get("entry_ip") and ep.get("exit_ip") not in bad
+                    and ep["public_key"] not in dead):
                 items.append((s, ep))
     pings: dict[str, float | None] = {}
     ips = sorted({ep["entry_ip"] for _, ep in items})
@@ -425,7 +430,8 @@ def speed_optimize(iface: str, pool: list[tuple], cur: dict, cur_srv: dict | Non
             g = geo(iface)
             persist(iface, s, ep, cur["port"])
             ist.update(server=name, entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
-                       switched=time.strftime("%F %T"), speed=sp, fail_t=0)
+                       switched=time.strftime("%F %T"), speed=sp, fail_t=0,
+                       cur_pub=ep["public_key"], since=time.time())
             return f"переключён на {name} по скорости: {sp} Мбит/с против {base} у {cur_name}"
         prev = ep["public_key"]
     # остаёмся на текущем
@@ -458,6 +464,18 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
             reason = f"выход {g['ip']} определяется как {g['yt'] or g['cf']} (YouTube {g['yt'] or '?'}, Cloudflare {g['cf'] or '?'})"
             if g["ip"]:
                 st.setdefault("bad_exits", {})[g["ip"]] = now
+    # Сервер Proton может пускать чужой для него ключ лишь какое-то время (handshake идёт, трафик
+    # потом режется). Сервер, на котором туннель умер, на сутки исключаем для этого туннеля, а
+    # серверы, где ключ проработал STABLE_AFTER и дольше, запоминаем и при поломке пробуем первыми
+    if ist.get("cur_pub") != cur["pub"]:
+        ist["cur_pub"], ist["since"] = cur["pub"], now
+    stable = ist.setdefault("stable", {})
+    if ok and now - ist.get("since", now) >= STABLE_AFTER:
+        stable[cur["pub"]] = {"ip": cur["ip"], "port": cur["port"], "t": now}
+    if not ok:
+        ist.setdefault("dead", {})[cur["pub"]] = now + (DEAD_STABLE_TTL if cur["pub"] in stable else DEAD_TTL)
+    ist["dead"] = {p: t for p, t in ist.get("dead", {}).items() if t > now}
+    dead = set(ist["dead"])
     if ok:
         sync_setup(iface, cur)
     optimize = force or now - ist.get("opt_t", 0) > OPTIMIZE_EVERY
@@ -470,16 +488,46 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
     cur_srv, _ = find_server(servers, cur["pub"])
     cur_rtt = ping(cur["ip"])
     cur_score = (cur_rtt + 0.2 * int(cur_srv.get("load", 50))) if (cur_rtt is not None and cur_srv) else None
+    if reason and not dry:
+        # сначала проверенные серверы этого ключа (самый свежий первым)
+        for pub, info in sorted(stable.items(), key=lambda x: -x[1].get("t", 0)):
+            if pub == cur["pub"] or pub in dead:
+                continue
+            s, ep = find_server(servers, pub)
+            if not ep:
+                s, ep = {"name": info["ip"], "country": "", "city": ""}, {"public_key": pub, "entry_ip": info["ip"]}
+            log(f"{iface}: {reason}; пробую проверенный {s['name']} {ep['entry_ip']}")
+            set_peer(iface, pub, ep["entry_ip"], cur["port"], cur["allowed"], cur["pub"])
+            g = geo(iface) if settle(iface, pub) else {"cf": "", "yt": "", "ip": ""}
+            if geo_ok(g):
+                persist(iface, s, ep, cur["port"])
+                ist.update(server=s["name"], entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
+                           switched=time.strftime("%F %T"), fail_t=0, cur_pub=pub, since=time.time())
+                return f"возвращён на проверенный {s['name']} ({ep['entry_ip']}, выход {g['ip']}, YouTube {g['yt']}); причина: {reason}"
+            set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], pub)
+            settle(iface, cur["pub"], 10)
     for country in countries(cfg, st)[:MAX_COUNTRIES]:
-        ranked = candidates(servers, cfg, st, country)
+        ranked = candidates(servers, cfg, st, country, dead)
         if not ranked:
             continue
         if not reason:
-            # Туннель работает: выбираем по реальной скорости среди лучших по пингу и нагрузке
-            pool = [c for c in ranked if c[3]["public_key"] != cur["pub"]][:SPEED_CANDIDATES]
+            # Туннель работает. Перебирать серверы вживую (замерять каждый) нельзя: Proton считает
+            # каждое подключение ключа сессией аккаунта и через некоторое время режет туннели
+            # (22.10 после переборов по 4 сервера туннели падали спустя 30-90 минут). Поэтому
+            # переходим одним шагом на сервер, заметно лучший по пингу и загрузке, а скорость
+            # текущего только замеряем для статуса.
+            best = next((c for c in ranked if c[3]["public_key"] != cur["pub"]), None)
+            ist.update(speed=speed(iface), speed_t=time.strftime("%F %T"))
+            cur_name = cur_srv["name"] if cur_srv else cur["ip"]
+            if not best or (cur_score is not None and best[0] > cur_score * OPT_GAIN - 3):
+                return f"ok, {cur_name} {cur_rtt or 0:.0f} мс, загрузка {cur_srv.get('load') if cur_srv else '?'}%, {ist['speed']} Мбит/с - лучше нет"
             if dry:
-                return "dry-run: замер скорости " + ", ".join(f"{c[2]['name']} {c[1]:.0f} мс/{c[2].get('load')}%" for c in pool)
-            return speed_optimize(iface, pool, cur, cur_srv, ist, st)
+                return f"dry-run: перешёл бы на {best[2]['name']} {best[1]:.0f} мс, загрузка {best[2].get('load')}%"
+            reason_opt = f"{best[2]['name']} лучше (пинг+загрузка {best[0]:.0f} против {cur_score if cur_score is not None else '?'})"
+            ranked = [best]
+            reason_note = reason_opt
+        else:
+            reason_note = reason
         tried = 0
         for score, rtt, s, ep in ranked:
             if ep["public_key"] == cur["pub"]:
@@ -489,15 +537,16 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
             tried += 1
             if dry:
                 return f"dry-run: {reason or 'оптимизация'} -> {s['name']} {ep['entry_ip']} {rtt:.0f} мс, нагрузка {s.get('load')}%"
-            log(f"{iface}: {reason or 'оптимизация'}; пробую {s['name']} {ep['entry_ip']} ({rtt:.0f} мс, нагрузка {s.get('load')}%)")
+            log(f"{iface}: {reason_note}; пробую {s['name']} {ep['entry_ip']} ({rtt:.0f} мс, нагрузка {s.get('load')}%)")
             set_peer(iface, ep["public_key"], ep["entry_ip"], cur["port"], cur["allowed"], cur["pub"])
             good = settle(iface, ep["public_key"])
             g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
             if good and geo_ok(g):
                 persist(iface, s, ep, cur["port"])
-                # подобран первый рабочий - на следующем запуске (через 5 минут) выбрать по скорости
+                # подобран первый рабочий; по скорости - в обычный срок, без лишних переключений
                 ist.update(server=s["name"], entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
-                           switched=time.strftime("%F %T"), rtt=round(rtt, 1), fail_t=0, opt_t=0)
+                           switched=time.strftime("%F %T"), rtt=round(rtt, 1), fail_t=0,
+                           cur_pub=ep["public_key"], since=time.time())
                 return f"переключён на {s['name']} ({ep['entry_ip']}, выход {g['ip']}, YouTube {g['yt']}, {rtt:.0f} мс)" + (f"; причина: {reason}" if reason else "")
             if good and g["ip"]:
                 st.setdefault("bad_exits", {})[g["ip"]] = time.time()
