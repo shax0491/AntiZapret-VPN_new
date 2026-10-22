@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Автоподбор сервера Proton VPN для WireGuard-туннелей узла.
+"""Сторож Proton VPN для WireGuard-туннелей узла (и автоподбор сервера по желанию).
 
-Ключ Proton (PrivateKey из профиля) действует на любом сервере Proton, поэтому для смены
-сервера достаточно поменять у пира PublicKey и Endpoint. Скрипт:
-  - раз в 5 минут (таймер) проверяет каждый Proton-туннель: свежий handshake, открывается
-    https-сайт, а раз в 6 часов ещё и страну выхода глазами YouTube/Cloudflare (Google считает
-    часть адресов Proton российскими - тогда YouTube на узле "RU");
-  - при поломке ставит проверенный или первый рабочий сервер в стране VPS (затем соседние),
-    а раз в 12 часов одним шагом переходит на заметно лучший по пингу и загрузке (живых
-    переборов нет: после них Proton режет туннели) и замеряет скорость текущего;
-  - переключает живой интерфейс (wg set), проверяет новый выход и при неудаче откатывает;
-  - сохраняет выбор в /etc/wireguard/<iface>.conf и в /root/antizapret/setup (PROTON_*),
-    чтобы перезапуск антизапрета и ночное переподключение WARP поднимали тот же сервер.
+По умолчанию (AUTO_SWITCH=n) сервер не меняется: у аккаунта Proton лимит одновременных
+подключений, и подключение ключа к новому серверу выбивает сессию другого туннеля, а на
+чужом для ключа сервере трафик со временем режут (проверено 22.10). Скрипт:
+  - раз в 5 минут проверяет каждый Proton-туннель (handshake + https через туннель);
+    не работает - переподключает к тому же серверу (не чаще раза в 30 минут);
+  - раз в 6 часов проверяет страну выхода глазами YouTube/Cloudflare (Google считает часть
+    адресов Proton российскими) - при RU пишет предупреждение;
+  - раз в 12 часов замеряет скорость (статус);
+  - записывает рабочие ключ и сервер туннеля в /root/antizapret/setup (PROTON_*), если их
+    поменяли только в .conf - иначе setup.sh --update вернул бы старые.
+С AUTO_SWITCH=y - подбор сервера в стране VPS по пингу и загрузке из списка Proton (LIST_URL),
+переключение на живом интерфейсе (wg set) с откатом и сохранением в .conf и setup.
 
 Туннели: warp-antizapret и warp-vpn (AntiZapret с WARP_PROVIDER=proton) или proton
 (узлы только с VLESS). Через тот же интерфейс ходит и xray-вариант «VLESS Proton».
 
 Настройки (необязательно): /etc/proton-pick.conf, строки KEY=VALUE:
+  AUTO_SWITCH=y          разрешить смену серверов (по умолчанию n)
   COUNTRIES=DE,NL        страны по порядку (по умолчанию страна VPS и соседние)
   TIERS=Plus             уровни серверов (Plus, Free; через запятую)
   LIST_URL=https://...   откуда брать список серверов
@@ -445,6 +447,34 @@ def speed_optimize(iface: str, pool: list[tuple], cur: dict, cur_srv: dict | Non
     return f"ok, {cur_name} {base} Мбит/с - быстрее нет (" + ", ".join(f"{n} {sp}" for sp, _, _, n in results[1:]) + ")"
 
 
+def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: float, force: bool) -> str:
+    """Режим по умолчанию: туннель остаётся на своём сервере (под который выпущен ключ).
+    22.10 выяснилось: у аккаунта Proton лимит одновременных подключений, и каждое подключение
+    ключа к новому серверу выбивает сессию другого туннеля (на другом узле), а ключ на чужом
+    сервере со временем перестаёт пропускать трафик. Поэтому серверы не меняем: при поломке
+    переподключаемся к тому же серверу, страну выхода и скорость только проверяем."""
+    if reason and "не работает" in reason:
+        if not force and now - ist.get("fail_t", 0) < 1800:
+            return f"{reason}; повторное переподключение не раньше {time.strftime('%H:%M', time.localtime(ist['fail_t'] + 1800))}"
+        # тот же сервер заново: снять пир и поставить снова (новый handshake)
+        run(["wg", "set", iface, "peer", cur["pub"], "remove"])
+        time.sleep(2)
+        set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], None)
+        if settle(iface, cur["pub"], 30):
+            ist.update(fail_t=0, rehandshake=time.strftime("%F %T"))
+            return f"переподключён к тому же серверу {cur['ip']} - работает"
+        ist["fail_t"] = now
+        return f"не работает и после переподключения к {cur['ip']} (сервер или ключ Proton) - сервер не меняю, AUTO_SWITCH=n"
+    if reason:
+        ist["geo_alert"] = reason
+        return f"ВНИМАНИЕ: {reason}; нужен ключ Proton под другой сервер (AUTO_SWITCH=n)"
+    ist.pop("geo_alert", None)
+    if force or now - ist.get("speed_t_epoch", 0) > OPTIMIZE_EVERY:
+        ist.update(speed=speed(iface), speed_t=time.strftime("%F %T"), speed_t_epoch=now)
+        return f"ok, {cur['ip']} {ist['speed']} Мбит/с"
+    return "ok"
+
+
 def find_server(servers: list[dict], pub: str) -> tuple[dict | None, dict | None]:
     for s in servers:
         for ep in s.get("endpoints", []):
@@ -482,6 +512,10 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
     dead = set(ist["dead"])
     if ok:
         sync_setup(iface, cur)
+    if cfg.get("AUTO_SWITCH", "n").lower() not in ("y", "yes", "1"):
+        if dry:
+            return f"dry-run: {reason or 'ok'} (AUTO_SWITCH=n: сервер не меняется" + (", переподключился бы к тому же)" if reason else ")")
+        return native_mode(iface, cur, ok, reason, ist, now, force)
     optimize = force or now - ist.get("opt_t", 0) > OPTIMIZE_EVERY
     if not reason and not optimize:
         return "ok"
