@@ -68,6 +68,7 @@ fi
 while ip rule del priority 9990 2>/dev/null; do :; done
 rm -f /etc/knot-resolver/outgoing2.lua
 echo "net.outgoing_v4(nil)" | socat - /run/knot-resolver/control/2 &>/dev/null || true
+echo "net.outgoing_v4(nil)" | socat - /run/knot-resolver/control/3 &>/dev/null || true
 
 # WARP DNS
 DNS_WARP_INTERFACE=warp-dns
@@ -233,5 +234,6 @@ if ip link show dev $DNS_WARP_INTERFACE &>/dev/null; then
 	ip link delete dev $DNS_WARP_INTERFACE
 fi
 
-./custom-down.sh
+./custom-down.sh "$@" || true
+
 exit 0

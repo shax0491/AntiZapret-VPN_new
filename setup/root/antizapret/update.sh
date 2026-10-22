@@ -41,6 +41,10 @@ WARP_RPZ_PATH=warp-rpz.sh
 CDN_PIN_LINK=$FORK_BASE/cdn-pin.sh
 CDN_PIN_PATH=cdn-pin.sh
 
+# Автоподбор сервера Proton VPN (таймер ставит doall.sh)
+PROTON_PICK_LINK=$FORK_BASE/proton-pick.py
+PROTON_PICK_PATH=proton-pick.py
+
 DOALL_LINK=$FORK_BASE/doall.sh
 DOALL_PATH=doall.sh
 
@@ -56,6 +60,9 @@ DENY_RPZ_PATH=download/deny-rpz.txt
 
 DENY2_RPZ_LINK=$FORK_BASE/download/deny2-rpz.txt
 DENY2_RPZ_PATH=download/deny2-rpz.txt
+
+DENY3_RPZ_LINK=$FORK_BASE/download/deny3-rpz.txt
+DENY3_RPZ_PATH=download/deny3-rpz.txt
 
 INCLUDE_HOSTS_LINK=$FORK_BASE/download/include-hosts.txt
 INCLUDE_HOSTS_PATH=download/include-hosts.txt
@@ -209,6 +216,7 @@ download $UPDATE_PATH $UPDATE_LINK y || true
 download $PARSE_PATH $PARSE_LINK y || true
 download $WARP_RPZ_PATH $WARP_RPZ_LINK y || true
 download $CDN_PIN_PATH $CDN_PIN_LINK y || true
+download $PROTON_PICK_PATH $PROTON_PICK_LINK y || true
 download $DOALL_PATH $DOALL_LINK y || true
 
 source setup
@@ -218,6 +226,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	download $DOMAIN2_PATH $DOMAIN2_LINK n || true
 	download $DENY_RPZ_PATH $DENY_RPZ_LINK n || true
 	download $DENY2_RPZ_PATH $DENY2_RPZ_LINK n || true
+	download $DENY3_RPZ_PATH $DENY3_RPZ_LINK n || true
 	download $INCLUDE_HOSTS_PATH $INCLUDE_HOSTS_LINK n || true
 	download $INCLUDE_WARP_HOSTS_PATH $INCLUDE_WARP_HOSTS_LINK n || true
 	download $REMOVE_HOSTS_PATH $REMOVE_HOSTS_LINK n || true
@@ -262,7 +271,7 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	if [[ "$ROBLOX_INCLUDE" == 'y' ]]; then download $ROBLOX_IPS_PATH $ROBLOX_IPS_LINK n || true; else rm -f $ROBLOX_IPS_PATH; fi
 fi
 
-./custom-update.sh "$1" || true
+./custom-update.sh "$@" || true
 
 log "Update finished"
 exit 0

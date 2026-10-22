@@ -596,7 +596,9 @@ backup(){
 	cp -r "$AWG2/vpn2.conf" /root/antizapret/backup/amneziawg 2>/dev/null || true
 	cp -r "$AWG2/key" /root/antizapret/backup/amneziawg 2>/dev/null || true
 	cp -r /root/antizapret/config/*.txt /root/antizapret/backup/config || true
-	cp -r /etc/knot-resolver/*.lua /root/antizapret/backup/knot-resolver || true
+	# только пользовательские custom*.lua и renumber*.lua (как у апстрима): остальные .lua - часть установки,
+	# старая копия из бэкапа затёрла бы новую версию при восстановлении
+	cp /etc/knot-resolver/custom*.lua /etc/knot-resolver/renumber*.lua /root/antizapret/backup/knot-resolver || true
 	cp -r /root/antizapret/custom*.sh /root/antizapret/backup/custom || true
 
 	BACKUP_FILE="/root/antizapret/backup-$SERVER_IP.tar.gz"
