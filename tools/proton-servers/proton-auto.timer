@@ -1,0 +1,10 @@
+[Unit]
+Description=Proton VPN server list every 6 hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

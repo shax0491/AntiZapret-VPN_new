@@ -1,0 +1,8 @@
+[Unit]
+Description=Proton VPN server list for proton-pick (fetch.py)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/proton-auto/fetch.py
+TimeoutStartSec=300

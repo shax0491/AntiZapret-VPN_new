@@ -6,8 +6,9 @@
   - раз в 30 минут (таймер) проверяет каждый Proton-туннель: свежий handshake, открывается
     https-сайт, а раз в 6 часов ещё и страну выхода глазами YouTube/Cloudflare (Google считает
     часть адресов Proton российскими - тогда YouTube на узле "RU");
-  - при поломке или раз в 6 часов берёт список серверов (его публикует DE3), оставляет страну
-    VPS (затем соседние), меряет пинг до входных адресов и выбирает лучший по пингу и нагрузке;
+  - при поломке ставит первый рабочий сервер в стране VPS (затем соседние), а раз в 12 часов
+    замеряет скорость текущего и 4 лучших по пингу и нагрузке (20 МБ через туннель) и
+    оставляет самый быстрый, если он быстрее текущего на 20% и больше;
   - переключает живой интерфейс (wg set), проверяет новый выход и при неудаче откатывает;
   - сохраняет выбор в /etc/wireguard/<iface>.conf и в /root/antizapret/setup (PROTON_*),
     чтобы перезапуск антизапрета и ночное переподключение WARP поднимали тот же сервер.
@@ -36,7 +37,7 @@ import sys
 import time
 import urllib.request
 
-LIST_URL = "https://<your-server>/lists/<secret>/proton-servers.json"
+LIST_URL = "https://<your-server>/proton/proton-servers.json"  # свой источник: LIST_URL в /etc/proton-pick.conf
 CONF = "/etc/proton-pick.conf"
 STATE_DIR = "/var/lib/proton-pick"
 STATE = STATE_DIR + "/state.json"
