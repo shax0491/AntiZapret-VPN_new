@@ -42,7 +42,9 @@ STATE_DIR = "/var/lib/proton-pick"
 STATE = STATE_DIR + "/state.json"
 SETUP = "/root/antizapret/setup"
 SETUP_PREFIX = {"warp-antizapret": "PROTON_ANTIZAPRET", "warp-vpn": "PROTON_VPN"}
-OPTIMIZE_EVERY = 6 * 3600      # полный пересмотр выбора
+OPTIMIZE_EVERY = 12 * 3600     # пересмотр выбора с замером скорости (~20 МБ на кандидата)
+SPEED_CANDIDATES = 4           # сколько лучших по пингу и нагрузке замерять по скорости
+SPEED_GAIN = 1.2               # переключаться, если быстрее текущего хотя бы на 20%
 GEO_EVERY = 6 * 3600           # проверка страны выхода у работающего туннеля
 BAD_EXIT_TTL = 7 * 86400       # адрес выхода, который Google считает российским, не берём неделю
 BAD_GEO = {"RU", "BY"}
@@ -372,6 +374,66 @@ def candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str)
     return ranked
 
 
+def speed(iface: str) -> float:
+    """Скорость скачивания через туннель, Мбит/с (0 - не удалось). Файл Cloudflare - только
+    измеритель (работает лишь с браузерным User-Agent), запасной - OVH."""
+    for url, limit in (("https://speed.cloudflare.com/__down?bytes=20000000", 15),
+                       ("https://proof.ovh.net/files/10Mb.dat", 15)):
+        try:
+            r = run(["curl", "-s", "-o", "/dev/null", "-m", str(limit), "--interface", iface,
+                     "-A", "Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0 Safari/537.36",
+                     "-w", "%{http_code} %{speed_download} %{size_download}", url], timeout=limit + 5)
+        except subprocess.TimeoutExpired:
+            continue
+        f = r.stdout.split()
+        if len(f) == 3 and f[0] == "200" and float(f[2]) > 2_000_000:
+            return round(float(f[1]) * 8 / 1e6, 1)
+    return 0.0
+
+
+def speed_optimize(iface: str, pool: list[tuple], cur: dict, cur_srv: dict | None, ist: dict, st: dict) -> str:
+    """Замерить скорость текущего сервера и кандидатов, оставить самый быстрый.
+    Клиенты всё это время работают: каждый кандидат держит трафик ~20 секунд."""
+    cur_name = cur_srv["name"] if cur_srv else cur["ip"]
+    base = speed(iface)
+    results = [(base, None, None, cur_name)]
+    log(f"{iface}: замер скорости: текущий {cur_name} {base} Мбит/с")
+    prev = cur["pub"]
+    for score, rtt, s, ep in pool:
+        set_peer(iface, ep["public_key"], ep["entry_ip"], cur["port"], cur["allowed"], prev)
+        prev = ep["public_key"]
+        if not settle(iface, ep["public_key"]):
+            log(f"{iface}: {s['name']} не работает")
+            continue
+        g = geo(iface)
+        if not geo_ok(g):
+            if g["ip"]:
+                st.setdefault("bad_exits", {})[g["ip"]] = time.time()
+            log(f"{iface}: {s['name']} - выход {g['ip']} YouTube {g['yt'] or '?'}, пропускаю")
+            continue
+        sp = speed(iface)
+        log(f"{iface}: {s['name']} ({rtt:.0f} мс, нагрузка {s.get('load')}%) {sp} Мбит/с")
+        results.append((sp, s, ep, s["name"]))
+    best = max(results, key=lambda x: x[0])
+    ist["speeds"] = {name: sp for sp, _, _, name in results}
+    ist["speed_t"] = time.strftime("%F %T")
+    if best[1] is not None and best[0] > max(base * SPEED_GAIN, 1.0):
+        sp, s, ep, name = best
+        set_peer(iface, ep["public_key"], ep["entry_ip"], cur["port"], cur["allowed"], prev)
+        if settle(iface, ep["public_key"]):
+            g = geo(iface)
+            persist(iface, s, ep, cur["port"])
+            ist.update(server=name, entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
+                       switched=time.strftime("%F %T"), speed=sp, fail_t=0)
+            return f"переключён на {name} по скорости: {sp} Мбит/с против {base} у {cur_name}"
+        prev = ep["public_key"]
+    # остаёмся на текущем
+    set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], prev)
+    settle(iface, cur["pub"], 15)
+    ist["speed"] = base
+    return f"ok, {cur_name} {base} Мбит/с - быстрее нет (" + ", ".join(f"{n} {sp}" for sp, _, _, n in results[1:]) + ")"
+
+
 def find_server(servers: list[dict], pub: str) -> tuple[dict | None, dict | None]:
     for s in servers:
         for ep in s.get("endpoints", []):
@@ -412,10 +474,11 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
         if not ranked:
             continue
         if not reason:
-            best = ranked[0]
-            # Без поломки переключаемся только на заметно лучший (на 5 мс и 20%)
-            if cur_score is not None and not (best[0] < cur_score - max(5.0, 0.2 * cur_score)):
-                return f"ok, текущий {cur_srv['name'] if cur_srv else cur['ip']} {cur_rtt:.0f} мс - лучше нет"
+            # Туннель работает: выбираем по реальной скорости среди лучших по пингу и нагрузке
+            pool = [c for c in ranked if c[3]["public_key"] != cur["pub"]][:SPEED_CANDIDATES]
+            if dry:
+                return "dry-run: замер скорости " + ", ".join(f"{c[2]['name']} {c[1]:.0f} мс/{c[2].get('load')}%" for c in pool)
+            return speed_optimize(iface, pool, cur, cur_srv, ist, st)
         tried = 0
         for score, rtt, s, ep in ranked:
             if ep["public_key"] == cur["pub"]:
@@ -431,8 +494,9 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
             g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
             if good and geo_ok(g):
                 persist(iface, s, ep, cur["port"])
+                # подобран первый рабочий - на следующем запуске (через 30 минут) выбрать по скорости
                 ist.update(server=s["name"], entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
-                           switched=time.strftime("%F %T"), rtt=round(rtt, 1), fail_t=0)
+                           switched=time.strftime("%F %T"), rtt=round(rtt, 1), fail_t=0, opt_t=0)
                 return f"переключён на {s['name']} ({ep['entry_ip']}, выход {g['ip']}, YouTube {g['yt']}, {rtt:.0f} мс)" + (f"; причина: {reason}" if reason else "")
             if good and g["ip"]:
                 st.setdefault("bad_exits", {})[g["ip"]] = time.time()
