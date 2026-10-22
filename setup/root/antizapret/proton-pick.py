@@ -267,6 +267,28 @@ def persist(iface: str, srv: dict, ep: dict, port: str) -> None:
         os.replace(tmp, SETUP)
 
 
+def sync_setup(iface: str, cur: dict) -> None:
+    """Рабочий пир, сменённый вручную (wg set) или старой версией, а в setup прежний сервер -
+    перезапуск антизапрета вернул бы старый. Записываем живой пир."""
+    prefix = SETUP_PREFIX.get(iface)
+    if not prefix or not os.path.exists(SETUP):
+        return
+    setup = read_kv(SETUP)
+    if setup.get(f"{prefix}_PUBLIC_KEY") == cur["pub"] and setup.get(f"{prefix}_ENDPOINT_HOST") == cur["ip"]:
+        return
+    with open(SETUP, encoding="utf-8") as f:
+        text = f.read()
+    for key, val in ((f"{prefix}_PUBLIC_KEY", cur["pub"]), (f"{prefix}_ENDPOINT_HOST", cur["ip"])):
+        if re.search(rf"^{key}=.*$", text, re.M):
+            text = re.sub(rf"^{key}=.*$", f"{key}={val}", text, flags=re.M)
+    tmp = SETUP + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, os.stat(SETUP).st_mode & 0o777)
+    os.replace(tmp, SETUP)
+    log(f"{iface}: setup приведён к работающему серверу {cur['ip']}")
+
+
 # ── Список серверов и выбор ────────────────────────────────────
 
 def server_list(cfg: dict[str, str], st: dict) -> list[dict]:
@@ -367,6 +389,8 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
             reason = f"выход {g['ip']} определяется как {g['yt'] or g['cf']} (YouTube {g['yt'] or '?'}, Cloudflare {g['cf'] or '?'})"
             if g["ip"]:
                 st.setdefault("bad_exits", {})[g["ip"]] = now
+    if ok:
+        sync_setup(iface, cur)
     optimize = force or now - ist.get("opt_t", 0) > OPTIMIZE_EVERY
     if not reason and not optimize:
         return "ok"
