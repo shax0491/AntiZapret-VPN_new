@@ -64,7 +64,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart={exe}
+ExecStart=/usr/bin/python3 {exe}
 TimeoutStartSec=900
 """
 TIMER = """[Unit]
@@ -274,11 +274,17 @@ def sync_setup(iface: str, cur: dict) -> None:
     if not prefix or not os.path.exists(SETUP):
         return
     setup = read_kv(SETUP)
-    if setup.get(f"{prefix}_PUBLIC_KEY") == cur["pub"] and setup.get(f"{prefix}_ENDPOINT_HOST") == cur["ip"]:
+    r = run(["wg", "show", iface, "private-key"])
+    priv = r.stdout.strip() if r.returncode == 0 else ""
+    want = {f"{prefix}_PUBLIC_KEY": cur["pub"], f"{prefix}_ENDPOINT_HOST": cur["ip"]}
+    if priv:
+        # ключ, сменённый только в .conf, setup.sh --update заменил бы старым из setup
+        want[f"{prefix}_PRIVATE_KEY"] = priv
+    if all(setup.get(k) == v for k, v in want.items()):
         return
     with open(SETUP, encoding="utf-8") as f:
         text = f.read()
-    for key, val in ((f"{prefix}_PUBLIC_KEY", cur["pub"]), (f"{prefix}_ENDPOINT_HOST", cur["ip"])):
+    for key, val in want.items():
         if re.search(rf"^{key}=.*$", text, re.M):
             text = re.sub(rf"^{key}=.*$", f"{key}={val}", text, flags=re.M)
     tmp = SETUP + ".tmp"
@@ -286,7 +292,7 @@ def sync_setup(iface: str, cur: dict) -> None:
         f.write(text)
     os.chmod(tmp, os.stat(SETUP).st_mode & 0o777)
     os.replace(tmp, SETUP)
-    log(f"{iface}: setup приведён к работающему серверу {cur['ip']}")
+    log(f"{iface}: setup приведён к работающему туннелю ({', '.join(k for k in want if setup.get(k) != want[k])})")
 
 
 # ── Список серверов и выбор ────────────────────────────────────
