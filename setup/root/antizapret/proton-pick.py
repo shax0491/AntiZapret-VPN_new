@@ -37,7 +37,7 @@ import sys
 import time
 import urllib.request
 
-LIST_URL = "https://<your-server>/proton/proton-servers.json"  # свой источник: LIST_URL в /etc/proton-pick.conf
+LIST_URL = ""  # адрес списка серверов задаётся в /etc/proton-pick.conf (LIST_URL=...), см. README 8б
 CONF = "/etc/proton-pick.conf"
 STATE_DIR = "/var/lib/proton-pick"
 STATE = STATE_DIR + "/state.json"
@@ -307,7 +307,11 @@ def sync_setup(iface: str, cur: dict) -> None:
 def server_list(cfg: dict[str, str], st: dict) -> list[dict]:
     url = cfg.get("LIST_URL", LIST_URL)
     cache = STATE_DIR + "/servers.json"
+    if not url:
+        log("LIST_URL не задан в /etc/proton-pick.conf - подбор по прошлому списку или только проверка")
     try:
+        if not url:
+            raise ValueError("no LIST_URL")
         with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "proton-pick"}), timeout=30) as r:
             data = json.loads(r.read())
         if isinstance(data, dict):
