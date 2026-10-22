@@ -201,6 +201,20 @@ def wait_handshake(iface: str, pub: str, timeout: int = 12) -> bool:
     return False
 
 
+def settle(iface: str, pub: str, timeout: int = 25) -> bool:
+    """После смены сервера: handshake проходит сразу, но незнакомый ключ сервер Proton принимает
+    через несколько секунд (до этого трафик не идёт) - ждём рабочий https."""
+    if not wait_handshake(iface, pub):
+        return False
+    end = time.time() + timeout
+    while time.time() < end:
+        code, _ = curl(iface, "https://www.gstatic.com/generate_204", 5, body=False)
+        if code == 204:
+            return True
+        time.sleep(2)
+    return False
+
+
 def set_peer(iface: str, pub: str, ip: str, port: str, allowed: str, old_pub: str | None) -> None:
     run(["wg", "set", iface, "peer", pub, "endpoint", f"{ip}:{port}", "allowed-ips", allowed,
          "persistent-keepalive", "15"])
@@ -383,7 +397,7 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
                 return f"dry-run: {reason or 'оптимизация'} -> {s['name']} {ep['entry_ip']} {rtt:.0f} мс, нагрузка {s.get('load')}%"
             log(f"{iface}: {reason or 'оптимизация'}; пробую {s['name']} {ep['entry_ip']} ({rtt:.0f} мс, нагрузка {s.get('load')}%)")
             set_peer(iface, ep["public_key"], ep["entry_ip"], cur["port"], cur["allowed"], cur["pub"])
-            good = wait_handshake(iface, ep["public_key"]) and healthy(iface)
+            good = settle(iface, ep["public_key"])
             g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
             if good and geo_ok(g):
                 persist(iface, s, ep, cur["port"])
@@ -394,7 +408,7 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
                 st.setdefault("bad_exits", {})[g["ip"]] = time.time()
             log(f"{iface}: {s['name']} не подошёл (работает={good}, YouTube {g['yt'] or '?'}, Cloudflare {g['cf'] or '?'})")
             set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], ep["public_key"])
-            wait_handshake(iface, cur["pub"], 8)
+            settle(iface, cur["pub"], 15)
         if tried and reason:
             continue  # в этой стране ничего не подошло - следующая страна
         if tried:
