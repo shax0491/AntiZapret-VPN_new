@@ -41,6 +41,10 @@ WARP_RPZ_PATH=warp-rpz.sh
 CDN_PIN_LINK=$FORK_BASE/cdn-pin.sh
 CDN_PIN_PATH=cdn-pin.sh
 
+# Автоподбор сервера Proton VPN (таймер ставит doall.sh)
+PROTON_PICK_LINK=$FORK_BASE/proton-pick.py
+PROTON_PICK_PATH=proton-pick.py
+
 DOALL_LINK=$FORK_BASE/doall.sh
 DOALL_PATH=doall.sh
 
@@ -212,6 +216,7 @@ download $UPDATE_PATH $UPDATE_LINK y || true
 download $PARSE_PATH $PARSE_LINK y || true
 download $WARP_RPZ_PATH $WARP_RPZ_LINK y || true
 download $CDN_PIN_PATH $CDN_PIN_LINK y || true
+download $PROTON_PICK_PATH $PROTON_PICK_LINK y || true
 download $DOALL_PATH $DOALL_LINK y || true
 
 source setup

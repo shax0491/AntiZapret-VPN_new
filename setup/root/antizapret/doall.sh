@@ -14,6 +14,7 @@ if [[ "$SUM1" != "$SUM2" ]]; then
 fi
 ./parse.sh "$1"
 [[ -x cdn-pin.sh ]] && { ./cdn-pin.sh || true; }
+[[ -x proton-pick.py && ! -f /etc/systemd/system/proton-pick.timer ]] && { ./proton-pick.py --install || true; }
 ./custom-doall.sh "$@" || true
 
 echo "Execution time: $SECONDS seconds"
