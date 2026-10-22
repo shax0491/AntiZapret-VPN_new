@@ -88,8 +88,11 @@ find /var/log -name "*.gz" -delete
 find /var/log -name "*.1" -delete
 find /var/log -type f -exec truncate -s 0 {} +
 [[ -d /etc/openvpn/server/logs ]] && find /etc/openvpn/server/logs -type f -exec truncate -s 0 {} +
-dpkg --configure -a >/dev/null
-apt-get install -f -y >/dev/null
+# Изменённые конфиги пакетов оставляем как есть без вопроса: на образах HostVDS cloud-init
+# (cloud.cfg) спрашивал Y/I/N/O/D/Z, apt-get upgrade падал, а службы к тому времени уже остановлены
+echo 'Dpkg::Options { "--force-confdef"; "--force-confold"; };' > /etc/apt/apt.conf.d/99antizapret-confold
+DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold --configure -a >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get install -f -y >/dev/null
 apt-get clean >/dev/null
 apt-get autoremove --purge -y >/dev/null
 
