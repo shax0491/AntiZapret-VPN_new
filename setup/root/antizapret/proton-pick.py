@@ -24,7 +24,12 @@
   LIST_URL=https://...   откуда брать список серверов
   INTERFACES=warp-vpn    какие туннели обслуживать (по умолчанию все найденные)
   REKEY_URL=https://...  REKEY_TOKEN=...  где взять новый ключ под тот же сервер, если ключ умер
-                         (туннель не работает и после переподключения; сервер не меняется)
+                         (туннель не работает и после переподключения; сервер не меняется),
+                         и ключ под другой сервер той же страны, если туннель медленный
+  LAT_MAX=50             на сколько мс туннель может быть медленнее прямого выхода (0 - не следить)
+  LOAD_MAX=90            загрузка сервера по списку Proton, %, выше которой он считается перегруженным
+С REKEY_URL: медленно или перегружено LAT_BAD_RUNS проверок подряд - новый ключ под лучший по
+пингу и загрузке сервер той же страны (не чаще MOVE_EVERY); не стало быстрее - откат на прежний.
 
 Запуск: proton-pick.py [--force] [--dry-run] [--install] [--status]
 """
@@ -36,6 +41,7 @@ import fcntl
 import json
 import os
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -62,6 +68,11 @@ BAD_GEO = {"RU", "BY"}
 CANDIDATES = 6                 # сколько лучших по пингу пробовать при переключении
 MAX_COUNTRIES = 3              # своя страна и две соседние
 FAIL_BACKOFF = 2 * 3600        # после неудачного подбора следующий не раньше чем через 2 часа
+LAT_MAX = 50                   # мс: туннель медленнее прямого выхода больше чем на столько - «медленно»
+LOAD_MAX = 90                  # %: сервер загружен больше - «перегружен»
+LAT_BAD_RUNS = 3               # столько проверок подряд (по 5 минут) медленно - меняем сервер
+MOVE_EVERY = 6 * 3600          # не чаще одной смены сервера на туннель (DE3 тоже следит)
+MOVE_LOAD = 70                 # на сервер загруженнее этого не переходим
 # Соседние страны: если в своей стране нет рабочего сервера Proton
 NEIGHBORS = {
     "DE": ["DE", "NL", "AT", "CH", "PL", "CZ", "DK"],
@@ -473,23 +484,105 @@ def persist_private_key(iface: str, key: str) -> None:
     os.replace(tmp, path)
 
 
-def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
-    """Ключ умер (handshake есть, трафика нет и после переподключения): новый собственный ключ
-    под тот же сервер выпускает сервер со входом в аккаунт Proton (REKEY_URL, токен узла REKEY_TOKEN).
-    Сервер не меняется; не заработало - возвращаем старый ключ."""
-    req = urllib.request.Request(cfg["REKEY_URL"], data=json.dumps({"iface": iface, "entry_ip": cur["ip"]}).encode(),
+def request_key(cfg: dict[str, str], body: dict) -> tuple[dict | None, str]:
+    """Новый ключ с сервера ключей (REKEY_URL): под тот же сервер или под body["server"]."""
+    req = urllib.request.Request(cfg["REKEY_URL"], data=json.dumps(body, ensure_ascii=False).encode(),
                                  headers={"X-Rekey-Token": cfg["REKEY_TOKEN"], "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=150) as r:
-            k = json.load(r)
+            return json.load(r), ""
     except urllib.error.HTTPError as e:
         try:
             err = json.load(e).get("error", "")
         except ValueError:
             err = ""
-        return f"не работает и после переподключения к {cur['ip']}; новый ключ не выдан ({e.code} {err})"
+        return None, f"новый ключ не выдан ({e.code} {err})"
     except (OSError, ValueError) as e:
-        return f"не работает и после переподключения к {cur['ip']}; сервер ключей недоступен ({e})"
+        return None, f"сервер ключей недоступен ({e})"
+
+
+def rtt_ms(iface: str | None, n: int = 5) -> float | None:
+    """Медиана времени TCP-соединения с gstatic (через туннель или напрямую), мс."""
+    vals = []
+    for _ in range(n):
+        cmd = ["curl", "-s", "-o", "/dev/null", "-m", "5", "-w", "%{time_connect}"]
+        if iface:
+            cmd += ["--interface", iface]
+        try:
+            r = run(cmd + ["https://www.gstatic.com/generate_204"], timeout=8)
+            v = float(r.stdout.strip() or 0)
+        except (subprocess.TimeoutExpired, ValueError):
+            continue
+        if v > 0:
+            vals.append(v * 1000)
+    return statistics.median(vals) if len(vals) >= 3 else None
+
+
+def check_slow(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], ist: dict) -> str:
+    """Отклик туннеля против прямого выхода и загрузка сервера; копит число медленных проверок подряд."""
+    tun, direct = rtt_ms(iface), rtt_ms(None)
+    srv, _ = find_server(servers, cur["pub"])
+    load = int(srv.get("load") or 0) if srv else 0
+    ist["lat"] = {"tun": round(tun) if tun else None, "direct": round(direct) if direct else None,
+                  "load": load, "t": time.strftime("%F %T")}
+    why = ""
+    lat_max = int(cfg.get("LAT_MAX", LAT_MAX))
+    if lat_max and tun is not None and direct is not None and tun - direct > lat_max:
+        why = f"отклик через Proton {tun:.0f} мс, напрямую {direct:.0f}"
+    elif load >= int(cfg.get("LOAD_MAX", LOAD_MAX)):
+        why = f"сервер {srv['name']} загружен на {load}%"
+    ist["lat_bad"] = ist.get("lat_bad", 0) + 1 if why else 0
+    return why
+
+
+def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: dict, ist: dict, why: str) -> str:
+    """Туннель долго медленный: новый ключ под лучший по пингу и загрузке сервер той же страны.
+    Ключ выпускается под сервер (confgen --server), поэтому не «чужой»; одно новое подключение
+    вместо прежнего - лимит аккаунта не растёт. Не стало быстрее - прежний ключ и сервер."""
+    cur_srv, _ = find_server(servers, cur["pub"])
+    if not cur_srv:
+        return f"{why}; текущего сервера нет в списке Proton - не меняю"
+    ranked = [c for c in candidates(servers, cfg, st, cur_srv["country"])
+              if c[3]["entry_ip"] != cur["ip"] and int(c[2].get("load") or 100) < MOVE_LOAD]
+    if not ranked:
+        return f"{why}; другого сервера в {cur_srv['country']} нет"
+    _, rtt, s, _ = ranked[0]
+    log(f"{iface}: {why} ({ist['lat_bad']} проверки подряд) - ключ под {s['name']} ({rtt:.0f} мс, загрузка {s.get('load')}%)")
+    k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"], "server": s["name"], "why": why})
+    ist["move_t"] = time.time()
+    if not k:
+        return f"{why}; {err}"
+    old_priv = run(["wg", "show", iface, "private-key"]).stdout.strip()
+    before = ist["lat"].get("tun")
+    set_private_key(iface, k["private_key"])
+    set_peer(iface, k["public_key"], k["entry_ip"], k["port"], cur["allowed"], cur["pub"])
+    good = settle(iface, k["public_key"], 30)
+    g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
+    after = rtt_ms(iface) if good else None
+    if good and geo_ok(g) and after is not None and (before is None or after < before):
+        persist_private_key(iface, k["private_key"])
+        persist(iface, s, {"public_key": k["public_key"], "entry_ip": k["entry_ip"]}, k["port"])
+        p = peer(iface)
+        if p:
+            sync_setup(iface, p)
+        ist.update(lat_bad=0, moved=time.strftime("%F %T"), server=s["name"], entry=k["entry_ip"], exit=g["ip"],
+                   geo=g, geo_t=time.time(), fail_t=0, cur_pub=k["public_key"], since=time.time())
+        return f"перешёл на {s['name']} ({k['entry_ip']}, выход {g['ip']}): отклик {before} -> {after:.0f} мс; причина: {why}"
+    if old_priv:
+        set_private_key(iface, old_priv)
+    set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], k["public_key"])
+    settle(iface, cur["pub"], 20)
+    return (f"{why}; {s['name']} не лучше (работает={good}, YouTube {g['yt'] or '?'}, отклик {after and round(after)} мс) "
+            f"- возвращён прежний {cur['ip']}")
+
+
+def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
+    """Ключ умер (handshake есть, трафика нет и после переподключения): новый собственный ключ
+    под тот же сервер выпускает сервер со входом в аккаунт Proton (REKEY_URL, токен узла REKEY_TOKEN).
+    Сервер не меняется; не заработало - возвращаем старый ключ."""
+    k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"]})
+    if not k:
+        return f"не работает и после переподключения к {cur['ip']}; {err}"
     r = run(["wg", "show", iface, "private-key"])
     old_priv = r.stdout.strip()
     pub, ip, port = k.get("public_key") or cur["pub"], k.get("entry_ip") or cur["ip"], k.get("port") or cur["port"]
@@ -509,7 +602,7 @@ def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
 
 
 def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: float, force: bool,
-                cfg: dict[str, str] | None = None) -> str:
+                cfg: dict[str, str] | None = None, servers: list[dict] | None = None, st: dict | None = None) -> str:
     cfg = cfg or {}
     """Режим по умолчанию: туннель остаётся на своём сервере (под который выпущен ключ).
     22.10 выяснилось: у аккаунта Proton лимит одновременных подключений, и каждое подключение
@@ -534,6 +627,14 @@ def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: fl
         ist["geo_alert"] = reason
         return f"ВНИМАНИЕ: {reason}; нужен ключ Proton под другой сервер (AUTO_SWITCH=n)"
     ist.pop("geo_alert", None)
+    if servers and cfg.get("REKEY_URL") and cfg.get("REKEY_TOKEN"):
+        why = check_slow(iface, cur, servers, cfg, ist)
+        if why:
+            if ist["lat_bad"] < LAT_BAD_RUNS:
+                return f"{why} ({ist['lat_bad']}/{LAT_BAD_RUNS})"
+            if not force and now - ist.get("move_t", 0) < MOVE_EVERY:
+                return f"{why}; другой сервер не раньше {time.strftime('%H:%M', time.localtime(ist['move_t'] + MOVE_EVERY))}"
+            return move(iface, cur, servers, cfg, st if st is not None else {}, ist, why)
     if force or now - ist.get("speed_t_epoch", 0) > OPTIMIZE_EVERY:
         ist.update(speed=speed(iface), speed_t=time.strftime("%F %T"), speed_t_epoch=now)
         return f"ok, {cur['ip']} {ist['speed']} Мбит/с"
@@ -579,8 +680,10 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
         sync_setup(iface, cur)
     if cfg.get("AUTO_SWITCH", "n").lower() not in ("y", "yes", "1"):
         if dry:
-            return f"dry-run: {reason or 'ok'} (AUTO_SWITCH=n: сервер не меняется" + (", переподключился бы к тому же)" if reason else ")")
-        return native_mode(iface, cur, ok, reason, ist, now, force, cfg)
+            slow = check_slow(iface, cur, servers, cfg, ist) if ok else ""
+            return (f"dry-run: {reason or slow or 'ok'} (AUTO_SWITCH=n" + (", переподключился бы к тому же)" if reason else ")")
+                    + f"; отклик через Proton {ist.get('lat', {}).get('tun')} мс, напрямую {ist.get('lat', {}).get('direct')}")
+        return native_mode(iface, cur, ok, reason, ist, now, force, cfg, servers, st)
     optimize = force or now - ist.get("opt_t", 0) > OPTIMIZE_EVERY
     if not reason and not optimize:
         return "ok"
