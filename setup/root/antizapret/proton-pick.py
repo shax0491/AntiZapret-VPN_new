@@ -586,6 +586,60 @@ def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: di
             f"- возвращён прежний {cur['ip']}")
 
 
+def best_speed(iface: str) -> float:
+    return max(speed(iface), speed(iface))
+
+
+def repick(iface: str, servers: list[dict], cfg: dict[str, str], st: dict) -> str:
+    """Ручной подбор (--repick): именной ключ под лучший по пингу и загрузке сервер той же страны,
+    оставляем, если быстрее прежнего на 10%; иначе - именной ключ под прежний сервер. Ненужные
+    ключи сервер ключей отзывает (confirm). Сервер ключей пускает подборы по одному на все узлы."""
+    ist = st.setdefault("ifaces", {}).setdefault(iface, {})
+    cur = peer(iface)
+    if not cur or not healthy(iface):
+        return "туннель не работает - подбор не начинаю"
+    cur_srv, _ = find_server(servers, cur["pub"])
+    if not cur_srv:
+        return "текущего сервера нет в списке Proton"
+    old_priv = run(["wg", "show", iface, "private-key"]).stdout.strip()
+    old_speed, old_rtt = best_speed(iface), rtt_ms(iface)
+    ranked = [c for c in candidates(servers, cfg, st, cur_srv["country"]) if int(c[2].get("load") or 100) < MOVE_LOAD]
+    targets = [c[2] for c in ranked if c[3]["entry_ip"] != cur["ip"]][:1] + [cur_srv]
+    note = f"было {cur_srv['name']} {old_speed} Мбит/с {old_rtt and round(old_rtt)} мс"
+    for s in targets:
+        same = s is cur_srv
+        k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"], "server": s["name"], "why": "подбор", "repick": True})
+        if not k:
+            return f"{note}; {s['name']}: {err}"
+        set_private_key(iface, k["private_key"])
+        set_peer(iface, k["public_key"], k["entry_ip"], k["port"], cur["allowed"], cur["pub"])
+        good = settle(iface, k["public_key"], 30)
+        g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
+        sp = best_speed(iface) if good else 0.0
+        rt = rtt_ms(iface) if good else None
+        # лучше = пинг ниже на 5+ мс без потери скорости больше 10%, или скорость выше на 10%+ без роста пинга больше 5 мс
+        better = rt is not None and old_rtt is not None and (
+            (rt <= old_rtt - 5 and sp >= old_speed * 0.9) or (sp >= old_speed * 1.1 and rt <= old_rtt + 5))
+        if good and geo_ok(g) and (same or better):
+            persist_private_key(iface, k["private_key"])
+            persist(iface, s, {"public_key": k["public_key"], "entry_ip": k["entry_ip"]}, k["port"])
+            p = peer(iface)
+            if p:
+                sync_setup(iface, p)
+            ist.update(lat_bad=0, moved=time.strftime("%F %T"), server=s["name"], entry=k["entry_ip"], exit=g["ip"],
+                       geo=g, geo_t=time.time(), fail_t=0, cur_pub=k["public_key"], since=time.time(), speed=sp,
+                       speed_t=time.strftime("%F %T"), speed_t_epoch=time.time())
+            confirm(cfg, iface, k["entry_ip"], k, True)
+            return f"{note}; стало {s['name']} ({k['entry_ip']}) {sp} Мбит/с {rt and round(rt)} мс, ключ {k.get('device')}"
+        note += f"; {s['name']} {sp} Мбит/с {rt and round(rt)} мс (работает={good}, YouTube {g['yt'] or '?'}) - не лучше"
+        if old_priv:
+            set_private_key(iface, old_priv)
+        set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], k["public_key"])
+        settle(iface, cur["pub"], 20)
+        confirm(cfg, iface, cur["ip"], k, False)
+    return note + "; оставлен прежний ключ"
+
+
 def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
     """Ключ умер (handshake есть, трафика нет и после переподключения): новый собственный ключ
     под тот же сервер выпускает сервер со входом в аккаунт Proton (REKEY_URL, токен узла REKEY_TOKEN).
@@ -798,6 +852,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="только показать, что было бы выбрано")
     ap.add_argument("--install", action="store_true", help="установить systemd-таймер")
     ap.add_argument("--status", action="store_true", help="показать сохранённое состояние")
+    ap.add_argument("--repick", metavar="IFACE", help="подобрать туннелю самый быстрый сервер своей страны (новый ключ)")
     a = ap.parse_args()
     if a.install:
         install()
@@ -819,6 +874,15 @@ def main() -> int:
             log("Proton-туннелей нет")
             return 0
         servers = server_list(cfg, st)
+        if a.repick:
+            if a.repick not in names or not servers or not cfg.get("REKEY_URL"):
+                log(f"{a.repick}: подбор невозможен (нет туннеля, списка серверов или REKEY_URL)")
+                return 1
+            res = repick(a.repick, servers, cfg, st)
+            st["ifaces"][a.repick].update(last=res, last_t=time.strftime("%F %T"))
+            log(f"{a.repick}: {res}")
+            save_state(st)
+            return 0
         if not servers:
             log("список серверов Proton недоступен - только проверка")
         for iface in names:
