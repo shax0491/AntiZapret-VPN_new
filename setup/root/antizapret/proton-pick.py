@@ -23,6 +23,8 @@
   TIERS=Plus             уровни серверов (Plus, Free; через запятую)
   LIST_URL=https://...   откуда брать список серверов
   INTERFACES=warp-vpn    какие туннели обслуживать (по умолчанию все найденные)
+  REKEY_URL=https://...  REKEY_TOKEN=...  где взять новый ключ под тот же сервер, если ключ умер
+                         (туннель не работает и после переподключения; сервер не меняется)
 
 Запуск: proton-pick.py [--force] [--dry-run] [--install] [--status]
 """
@@ -36,7 +38,9 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.error
 import urllib.request
 
 LIST_URL = ""  # адрес списка серверов задаётся в /etc/proton-pick.conf (LIST_URL=...), см. README 8б
@@ -447,7 +451,66 @@ def speed_optimize(iface: str, pool: list[tuple], cur: dict, cur_srv: dict | Non
     return f"ok, {cur_name} {base} Мбит/с - быстрее нет (" + ", ".join(f"{n} {sp}" for sp, _, _, n in results[1:]) + ")"
 
 
-def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: float, force: bool) -> str:
+def set_private_key(iface: str, key: str) -> None:
+    fd, path = tempfile.mkstemp()
+    try:
+        os.write(fd, key.encode())
+        os.close(fd)
+        run(["wg", "set", iface, "private-key", path])
+    finally:
+        os.unlink(path)
+
+
+def persist_private_key(iface: str, key: str) -> None:
+    path = f"/etc/wireguard/{iface}.conf"
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    text = re.sub(r"^(PrivateKey\s*=\s*).*$", lambda m: m.group(1) + key, text, count=1, flags=re.M)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
+    """Ключ умер (handshake есть, трафика нет и после переподключения): новый собственный ключ
+    под тот же сервер выпускает сервер со входом в аккаунт Proton (REKEY_URL, токен узла REKEY_TOKEN).
+    Сервер не меняется; не заработало - возвращаем старый ключ."""
+    req = urllib.request.Request(cfg["REKEY_URL"], data=json.dumps({"iface": iface, "entry_ip": cur["ip"]}).encode(),
+                                 headers={"X-Rekey-Token": cfg["REKEY_TOKEN"], "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=150) as r:
+            k = json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.load(e).get("error", "")
+        except ValueError:
+            err = ""
+        return f"не работает и после переподключения к {cur['ip']}; новый ключ не выдан ({e.code} {err})"
+    except (OSError, ValueError) as e:
+        return f"не работает и после переподключения к {cur['ip']}; сервер ключей недоступен ({e})"
+    r = run(["wg", "show", iface, "private-key"])
+    old_priv = r.stdout.strip()
+    pub, ip, port = k.get("public_key") or cur["pub"], k.get("entry_ip") or cur["ip"], k.get("port") or cur["port"]
+    set_private_key(iface, k["private_key"])
+    set_peer(iface, pub, ip, port, cur["allowed"], cur["pub"])
+    if settle(iface, pub, 30):
+        persist_private_key(iface, k["private_key"])
+        p = peer(iface)
+        if p:
+            sync_setup(iface, p)
+        ist.update(fail_t=0, rekeyed=time.strftime("%F %T"), rekey_server=k.get("server"))
+        return f"ключ Proton умер - выпущен и поставлен новый ({k.get('server')}, {ip}), туннель работает"
+    if old_priv:
+        set_private_key(iface, old_priv)
+    set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], pub)
+    return f"не работает и с новым ключом ({k.get('server')}) - возвращён прежний"
+
+
+def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: float, force: bool,
+                cfg: dict[str, str] | None = None) -> str:
+    cfg = cfg or {}
     """Режим по умолчанию: туннель остаётся на своём сервере (под который выпущен ключ).
     22.10 выяснилось: у аккаунта Proton лимит одновременных подключений, и каждое подключение
     ключа к новому серверу выбивает сессию другого туннеля (на другом узле), а ключ на чужом
@@ -464,6 +527,8 @@ def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: fl
             ist.update(fail_t=0, rehandshake=time.strftime("%F %T"))
             return f"переподключён к тому же серверу {cur['ip']} - работает"
         ist["fail_t"] = now
+        if cfg.get("REKEY_URL") and cfg.get("REKEY_TOKEN"):
+            return rekey(iface, cur, cfg, ist)
         return f"не работает и после переподключения к {cur['ip']} (сервер или ключ Proton) - сервер не меняю, AUTO_SWITCH=n"
     if reason:
         ist["geo_alert"] = reason
@@ -515,7 +580,7 @@ def handle(iface: str, servers: list[dict], cfg: dict[str, str], st: dict, force
     if cfg.get("AUTO_SWITCH", "n").lower() not in ("y", "yes", "1"):
         if dry:
             return f"dry-run: {reason or 'ok'} (AUTO_SWITCH=n: сервер не меняется" + (", переподключился бы к тому же)" if reason else ")")
-        return native_mode(iface, cur, ok, reason, ist, now, force)
+        return native_mode(iface, cur, ok, reason, ist, now, force, cfg)
     optimize = force or now - ist.get("opt_t", 0) > OPTIMIZE_EVERY
     if not reason and not optimize:
         return "ok"
