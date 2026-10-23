@@ -501,6 +501,14 @@ def request_key(cfg: dict[str, str], body: dict) -> tuple[dict | None, str]:
         return None, f"сервер ключей недоступен ({e})"
 
 
+def confirm(cfg: dict[str, str], iface: str, ip: str, k: dict, ok: bool) -> None:
+    """Сообщить серверу ключей, прижился ли выданный ключ: он отзовёт на аккаунте ненужный
+    (прежний при успехе, выданный при откате), чтобы ключи не копились."""
+    if k.get("device"):
+        res, err = request_key(cfg, {"iface": iface, "entry_ip": ip, "confirm": k["device"], "ok": ok})
+        log(f"{iface}: отозван ключ {res.get('revoked')}" if res and res.get("revoked") else f"{iface}: отзыв ключа: {err or 'нечего'}")
+
+
 def rtt_ms(iface: str | None, n: int = 5) -> float | None:
     """Медиана времени TCP-соединения с gstatic (через туннель или напрямую), мс."""
     vals = []
@@ -567,11 +575,13 @@ def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: di
             sync_setup(iface, p)
         ist.update(lat_bad=0, moved=time.strftime("%F %T"), server=s["name"], entry=k["entry_ip"], exit=g["ip"],
                    geo=g, geo_t=time.time(), fail_t=0, cur_pub=k["public_key"], since=time.time())
+        confirm(cfg, iface, k["entry_ip"], k, True)
         return f"перешёл на {s['name']} ({k['entry_ip']}, выход {g['ip']}): отклик {before} -> {after:.0f} мс; причина: {why}"
     if old_priv:
         set_private_key(iface, old_priv)
     set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], k["public_key"])
     settle(iface, cur["pub"], 20)
+    confirm(cfg, iface, cur["ip"], k, False)
     return (f"{why}; {s['name']} не лучше (работает={good}, YouTube {g['yt'] or '?'}, отклик {after and round(after)} мс) "
             f"- возвращён прежний {cur['ip']}")
 
@@ -594,10 +604,12 @@ def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
         if p:
             sync_setup(iface, p)
         ist.update(fail_t=0, rekeyed=time.strftime("%F %T"), rekey_server=k.get("server"))
+        confirm(cfg, iface, ip, k, True)
         return f"ключ Proton умер - выпущен и поставлен новый ({k.get('server')}, {ip}), туннель работает"
     if old_priv:
         set_private_key(iface, old_priv)
     set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], pub)
+    confirm(cfg, iface, cur["ip"], k, False)
     return f"не работает и с новым ключом ({k.get('server')}) - возвращён прежний"
 
 
