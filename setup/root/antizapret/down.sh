@@ -146,6 +146,10 @@ done
 ip6tables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -D OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
+# Disable TCP Timestamps
+iptables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPOPTSTRIP --strip-options timestamp
+ip6tables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPOPTSTRIP --strip-options timestamp
+
 # raw
 # NOTRACK loopback
 iptables -w -t raw -D PREROUTING -i lo -j NOTRACK
@@ -178,6 +182,12 @@ iptables -w -t nat -D PREROUTING -s $IP.29.0.0/16 -p tcp --dport 53 -j DNAT --to
 # VPN DNS redirection to Knot Resolver
 iptables -w -t nat -D PREROUTING -s $IP.28.0.0/16 -p udp --dport 53 -j DNAT --to-destination 127.2.2.2
 iptables -w -t nat -D PREROUTING -s $IP.28.0.0/16 -p tcp --dport 53 -j DNAT --to-destination 127.2.2.2
+# Block DoT/DoQ (см. up.sh)
+for net in $IP.28.0.0/15 $IP.29.0.0/16; do
+	for proto in tcp udp; do
+		iptables -w -t raw -D PREROUTING -s $net -p $proto --dport 853 -j DROP 2>/dev/null || true
+	done
+done
 # Учёт DNS-запросов клиентов к чужим DNS (см. up.sh)
 for DNS_PROTO in udp tcp; do
 	for DNS_SRC in $IP.29.0.0/16 $IP.28.0.0/16; do

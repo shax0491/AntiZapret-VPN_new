@@ -516,6 +516,10 @@ done
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
+# Disable TCP Timestamps (как у апстрима с 26.10: виновник зависаний соединений через WARP)
+iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPOPTSTRIP --strip-options timestamp
+ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPOPTSTRIP --strip-options timestamp
+
 # raw
 iptables -w -t raw -A PREROUTING -i lo -j NOTRACK
 iptables -w -t raw -A OUTPUT -o lo -j NOTRACK
@@ -548,6 +552,14 @@ iptables -w -t nat -A PREROUTING -s $IP.29.0.0/16 -p tcp --dport 53 -j DNAT --to
 if [[ "$VPN_DNS" == '1' ]]; then
 	iptables -w -t nat -A PREROUTING -s $IP.28.0.0/16 -p udp --dport 53 -j DNAT --to-destination 127.2.2.2
 	iptables -w -t nat -A PREROUTING -s $IP.28.0.0/16 -p tcp --dport 53 -j DNAT --to-destination 127.2.2.2
+fi
+# Block DoT/DoQ (порт 853, как у апстрима с 26.10): клиент не уходит от DNS туннеля в зашифрованный чужой DNS
+if [[ "$VPN_DNS" == '1' ]]; then
+	iptables -w -t raw -A PREROUTING -s $IP.28.0.0/15 -p tcp --dport 853 -j DROP
+	iptables -w -t raw -A PREROUTING -s $IP.28.0.0/15 -p udp --dport 853 -j DROP
+else
+	iptables -w -t raw -A PREROUTING -s $IP.29.0.0/16 -p tcp --dport 853 -j DROP
+	iptables -w -t raw -A PREROUTING -s $IP.29.0.0/16 -p udp --dport 853 -j DROP
 fi
 # Учёт DNS-запросов клиентов к чужим DNS (1.1.1.1, 8.8.8.8 и т.п.), а не к DNS туннеля: правила без
 # цели, только счётчики для панели (Warp Geo -> DNS). mangle идёт раньше DNAT выше, поэтому видит
