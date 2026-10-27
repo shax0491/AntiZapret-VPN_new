@@ -97,7 +97,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 			else
 				if [[ "$WARP_PROTECTION" == 'y' ]]; then
 					echo "Starting $ANTIZAPRET_WARP_INTERFACE (Proton) failed! Blocking traffic"
-					iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -j DROP
+					iptables -w -t raw -A PREROUTING -s $IP.29.0.0/16 -j DROP
 				else
 					echo "Starting $ANTIZAPRET_WARP_INTERFACE (Proton) failed! Use $DEFAULT_INTERFACE"
 				fi
@@ -146,7 +146,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 		else
 			if [[ "$WARP_PROTECTION" == 'y' ]]; then
 				echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Blocking traffic"
-				iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -j DROP
+				iptables -w -t raw -A PREROUTING -s $IP.29.0.0/16 -j DROP
 			else
 				echo "Starting $ANTIZAPRET_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 			fi
@@ -202,7 +202,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 			else
 				if [[ "$WARP_PROTECTION" == 'y' ]]; then
 					echo "Starting $VPN_WARP_INTERFACE (Proton) failed! Blocking traffic"
-					iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -j DROP
+					iptables -w -t raw -A PREROUTING -s $IP.28.0.0/16 -j DROP
 				else
 					echo "Starting $VPN_WARP_INTERFACE (Proton) failed! Use $DEFAULT_INTERFACE"
 				fi
@@ -251,7 +251,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 		else
 			if [[ "$WARP_PROTECTION" == 'y' ]]; then
 				echo "Starting $VPN_WARP_INTERFACE failed! Blocking traffic"
-				iptables -w -I FORWARD 2 -s $IP.28.0.0/16 -j DROP
+				iptables -w -t raw -A PREROUTING -s $IP.28.0.0/16 -j DROP
 			else
 				echo "Starting $VPN_WARP_INTERFACE failed! Use $DEFAULT_INTERFACE"
 			fi
