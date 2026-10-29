@@ -642,12 +642,57 @@ def repick(iface: str, servers: list[dict], cfg: dict[str, str], st: dict) -> st
     return note + "; оставлен прежний ключ"
 
 
-def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict) -> str:
+def rekey_other_server(iface: str, cur: dict, cfg: dict[str, str], ist: dict, servers: list[dict], st: dict, err: str) -> str:
+    """Сервер Proton, под который выпущен ключ, выведен из строя или пропал (not found or offline):
+    ключ под лучший по пингу и загрузке сервер той же страны (до 3 попыток). Подключение одно вместо
+    прежнего мёртвого - лимит аккаунта не растёт. Не заработало - возвращаем прежний ключ."""
+    srv, _ = find_server(servers, cur["pub"])
+    country = srv["country"] if srv else (ist.get("server") or "")[:2]
+    if not re.fullmatch(r"[A-Z]{2}", country or ""):
+        country = own_country(st)
+    ranked = [c for c in candidates(servers, cfg, st, country)
+              if c[3]["entry_ip"] != cur["ip"] and int(c[2].get("load") or 100) < MOVE_LOAD]
+    if not ranked:
+        return f"сервер Proton выведен из строя ({err}); другого сервера в {country} нет"
+    note = f"сервер Proton выведен из строя ({err})"
+    for _, rtt, s, _ in ranked[:3]:
+        k, err2 = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"], "server": s["name"], "why": "сервер умер"})
+        if not k:
+            note += f"; {s['name']}: {err2}"
+            continue
+        old_priv = run(["wg", "show", iface, "private-key"]).stdout.strip()
+        set_private_key(iface, k["private_key"])
+        set_peer(iface, k["public_key"], k["entry_ip"], k["port"], cur["allowed"], cur["pub"])
+        good = settle(iface, k["public_key"], 30)
+        g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
+        if good and geo_ok(g):
+            persist_private_key(iface, k["private_key"])
+            persist(iface, s, {"public_key": k["public_key"], "entry_ip": k["entry_ip"]}, k["port"])
+            p = peer(iface)
+            if p:
+                sync_setup(iface, p)
+            ist.update(fail_t=0, moved=time.strftime("%F %T"), server=s["name"], entry=k["entry_ip"], exit=g["ip"],
+                       geo=g, geo_t=time.time(), cur_pub=k["public_key"], since=time.time())
+            confirm(cfg, iface, k["entry_ip"], k, True)
+            return f"{note}; перешёл на {s['name']} ({k['entry_ip']}, выход {g['ip']}), туннель работает"
+        note += f"; {s['name']} не заработал (работает={good}, YouTube {g['yt'] or '?'})"
+        if old_priv:
+            set_private_key(iface, old_priv)
+        set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], k["public_key"])
+        confirm(cfg, iface, cur["ip"], k, False)
+    return note
+
+
+def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict,
+          servers: list[dict] | None = None, st: dict | None = None) -> str:
     """Ключ умер (handshake есть, трафика нет и после переподключения): новый собственный ключ
     под тот же сервер выпускает сервер со входом в аккаунт Proton (REKEY_URL, токен узла REKEY_TOKEN).
-    Сервер не меняется; не заработало - возвращаем старый ключ."""
+    Сервер не меняется; не заработало - возвращаем старый ключ. Если сервера Proton больше нет
+    (offline / not found) - ключ под другой сервер той же страны (rekey_other_server)."""
     k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"]})
     if not k:
+        if servers and st is not None and ("offline" in err or "not found" in err):
+            return rekey_other_server(iface, cur, cfg, ist, servers, st, err)
         return f"не работает и после переподключения к {cur['ip']}; {err}"
     r = run(["wg", "show", iface, "private-key"])
     old_priv = r.stdout.strip()
@@ -689,7 +734,7 @@ def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: fl
             return f"переподключён к тому же серверу {cur['ip']} - работает"
         ist["fail_t"] = now
         if cfg.get("REKEY_URL") and cfg.get("REKEY_TOKEN"):
-            return rekey(iface, cur, cfg, ist)
+            return rekey(iface, cur, cfg, ist, servers, st)
         return f"не работает и после переподключения к {cur['ip']} (сервер или ключ Proton) - сервер не меняю, AUTO_SWITCH=n"
     if reason:
         ist["geo_alert"] = reason
