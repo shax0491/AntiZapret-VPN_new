@@ -157,7 +157,7 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	[[ "$ALTERNATIVE_FAKE_IP" == 'y' ]] && FAKE_IP="${FAKE_IP:-198.18}" || FAKE_IP="$IP.30"
 
 	echo "push \"route $FAKE_IP.0.0 255.254.0.0\"" > result/DEFAULT
-	echo -e "route 0.0.0.0 128.0.0.0 net_gateway\nroute 128.0.0.0 128.0.0.0 net_gateway\nroute $IP.29.0.0 255.255.0.0\nroute $FAKE_IP.0.0 255.254.0.0" > result/tp-link-openvpn-routes.txt
+	echo -e "route 0.0.0.0 128.0.0.0 net_gateway\nroute 128.0.0.0 128.0.0.0 net_gateway\nroute $IP.29.0.1 255.255.255.255\nroute $IP.29.16.1 255.255.255.255\nroute $FAKE_IP.0.0 255.254.0.0" > result/tp-link-openvpn-routes.txt
 	echo -e "route ADD DNS_IP_1 MASK 255.255.255.255 $IP.29.8.1\nroute ADD DNS_IP_2 MASK 255.255.255.255 $IP.29.8.1\nroute ADD $FAKE_IP.0.0 MASK 255.254.0.0 $IP.29.8.1" > result/keenetic-wireguard-routes.txt
 	echo "/ip route add dst-address=$FAKE_IP.0.0/15 gateway=$IP.29.8.1 distance=1 comment=\"antizapret-wireguard\"" > result/mikrotik-wireguard-routes.txt
 	# AmneziaWG 2.0 - отдельный шлюз (antizapret2, .9.1), т.к. WireGuard/AmneziaWG 1.5 (antizapret, .8.1)
@@ -197,20 +197,21 @@ route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-r
 		cp -f result/ips /etc/wireguard/ips
 	fi
 
-	if [[ "$RESTRICT_FORWARD" == 'y' ]]; then
-		sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d' config/*forward-ips.txt temp/route-ips.txt | sort -u \
-		| awk -F'[/.]' 'NF==5 && $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255 && $5>=1 && $5<=32 {print}' > result/forward-ips.txt
+	# Обрабатываем конфигурационные файлы
+	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d' config/*forward-ips.txt temp/route-ips.txt | sort -u \
+	| awk -F'[/.]' 'NF==5 && $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255 && $5>=1 && $5<=32 {print}' > result/forward-ips.txt
 
-		echo "$(wc -l < result/forward-ips.txt) - forward-ips.txt"
+	# Выводим результат
+	echo "$(wc -l < result/forward-ips.txt) - forward-ips.txt"
 
-		{
-			echo 'create antizapret-forward hash:net -exist'
-			echo 'flush antizapret-forward'
-			while read -r cidr; do
-				echo "add antizapret-forward $cidr -exist"
-			done < result/forward-ips.txt
-		} | ipset restore
-	fi
+	# Обновляем ipset antizapret-forward
+	{
+		echo 'create antizapret-forward hash:net -exist'
+		echo 'flush antizapret-forward'
+		while read -r cidr; do
+			echo "add antizapret-forward $cidr -exist"
+		done < result/forward-ips.txt
+	} | ipset restore
 
 	if [[ "$ATTACK_PROTECTION" == 'y' ]]; then
 		sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d' config/*allow-ips.txt | sort -u \
