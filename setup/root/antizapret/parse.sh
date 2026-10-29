@@ -301,6 +301,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	# Результат не меняется, меняется только скорость/приоритет выполнения.
 	[[ -n "$(compgen -G 'download/*domain.txt')" ]] && \
 	nice -n 19 ionice -c3 sed -n 's/^[[:punct:]]\+//; s/[[:punct:]]\+$//; /\./{s/.*/\L&/; /^[а-яa-z0-9.-]\+$/p}' download/*domain.txt \
+	| awk -F. '{for (i = 1; i <= NF; i++) if (length($i) > 63) next; print}' \
 	| CHARSET=UTF-8 nice -n 19 ionice -c3 idn --no-tld >> temp/include-hosts.txt
 
 	if [[ "$CLEAR_HOSTS" == 'y' ]]; then
