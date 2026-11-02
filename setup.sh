@@ -615,7 +615,7 @@ sysctl -w net.ipv6.conf.all.disable_ipv6=1
 sysctl -w net.ipv6.conf.default.disable_ipv6=1
 sysctl -w net.ipv6.conf.lo.disable_ipv6=1
 
-sed -i '/^$/!{/^#/!d}' /etc/sysctl.conf
+[[ -f /etc/sysctl.conf ]] && sed -i '/^$/!{/^#/!d}' /etc/sysctl.conf
 
 echo 'nf_conntrack' > /etc/modules-load.d/nf_conntrack.conf
 
