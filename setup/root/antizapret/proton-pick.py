@@ -683,6 +683,40 @@ def rekey_other_server(iface: str, cur: dict, cfg: dict[str, str], ist: dict, se
     return note
 
 
+ALT_TRIES = 4          # сколько других серверов (из разных подсетей) пробовать текущим ключом
+RETRY_GAP = 600        # мёртвый туннель: полный цикл (тот же сервер, другие серверы, ключ) не чаще раза в 10 минут
+
+
+def try_alternates(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: dict, ist: dict) -> str:
+    """Шаг 1 при мёртвом туннеле: ТЕКУЩИЙ ключ на других серверах той же страны, из разных подсетей
+    (меняются только Endpoint и PublicKey сервера), проверка рукопожатием и https через интерфейс.
+    Ключ не выпускается, лимит перевыпуска не тратится. Ничего не подошло - пир возвращён прежний."""
+    srv, _ = find_server(servers, cur["pub"])
+    country = srv["country"] if srv else own_country(st)
+    seen, names = {cur["ip"].rsplit(".", 2)[0]}, []
+    for _, rtt, s, ep in candidates(servers, cfg, st, country, set(ist.get("dead", {}))):
+        net = ep["entry_ip"].rsplit(".", 2)[0]
+        if net in seen:
+            continue
+        if len(seen) > ALT_TRIES:
+            break
+        seen.add(net)
+        set_peer(iface, ep["public_key"], ep["entry_ip"], cur["port"], cur["allowed"], cur["pub"])
+        if settle(iface, ep["public_key"], 10):
+            g = geo(iface)
+            if geo_ok(g):
+                persist(iface, s, ep, cur["port"])
+                ist.update(server=s["name"], entry=ep["entry_ip"], exit=g["ip"], geo=g, geo_t=time.time(),
+                           switched=time.strftime("%F %T"), rtt=round(rtt, 1), fail_t=0,
+                           cur_pub=ep["public_key"], since=time.time())
+                return f"текущим ключом переключён на {s['name']} ({ep['entry_ip']}, выход {g['ip']}), туннель работает"
+        names.append(s["name"])
+        set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], ep["public_key"])
+    if names:
+        log(f"{iface}: текущий ключ не подошёл на {', '.join(names)}")
+    return ""
+
+
 def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict,
           servers: list[dict] | None = None, st: dict | None = None) -> str:
     """Ключ умер (handshake есть, трафика нет и после переподключения): новый собственный ключ
@@ -691,7 +725,7 @@ def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict,
     (offline / not found) - ключ под другой сервер той же страны (rekey_other_server)."""
     k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"]})
     if not k:
-        if servers and st is not None and ("offline" in err or "not found" in err):
+        if servers and st is not None and ("offline" in err or "not found" in err or "недавно" in err):
             return rekey_other_server(iface, cur, cfg, ist, servers, st, err)
         return f"не работает и после переподключения к {cur['ip']}; {err}"
     r = run(["wg", "show", iface, "private-key"])
@@ -711,7 +745,10 @@ def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict,
         set_private_key(iface, old_priv)
     set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], pub)
     confirm(cfg, iface, cur["ip"], k, False)
-    return f"не работает и с новым ключом ({k.get('server')}) - возвращён прежний"
+    err = f"не работает и с новым ключом ({k.get('server')})"
+    if servers and st is not None:  # сервер, видимо, мёртв: сразу другой, без ожидания
+        return rekey_other_server(iface, cur, cfg, ist, servers, st, err)
+    return f"{err} - возвращён прежний"
 
 
 def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: float, force: bool,
@@ -723,8 +760,8 @@ def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: fl
     сервере со временем перестаёт пропускать трафик. Поэтому серверы не меняем: при поломке
     переподключаемся к тому же серверу, страну выхода и скорость только проверяем."""
     if reason and "не работает" in reason:
-        if not force and now - ist.get("fail_t", 0) < 1800:
-            return f"{reason}; повторное переподключение не раньше {time.strftime('%H:%M', time.localtime(ist['fail_t'] + 1800))}"
+        if not force and now - ist.get("fail_t", 0) < RETRY_GAP:
+            return f"{reason}; следующий круг (тот же сервер, другие серверы, ключ) не раньше {time.strftime('%H:%M', time.localtime(ist['fail_t'] + RETRY_GAP))}"
         # тот же сервер заново: снять пир и поставить снова (новый handshake)
         run(["wg", "set", iface, "peer", cur["pub"], "remove"])
         time.sleep(2)
@@ -733,6 +770,10 @@ def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: fl
             ist.update(fail_t=0, rehandshake=time.strftime("%F %T"))
             return f"переподключён к тому же серверу {cur['ip']} - работает"
         ist["fail_t"] = now
+        if servers and st is not None:
+            alt = try_alternates(iface, cur, servers, cfg, st, ist)
+            if alt:
+                return alt
         if cfg.get("REKEY_URL") and cfg.get("REKEY_TOKEN"):
             return rekey(iface, cur, cfg, ist, servers, st)
         return f"не работает и после переподключения к {cur['ip']} (сервер или ключ Proton) - сервер не меняю, AUTO_SWITCH=n"
