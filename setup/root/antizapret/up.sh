@@ -399,16 +399,16 @@ if [[ "$TORRENT_GUARD" == 'y' ]]; then
 	iptables -w -I FORWARD 4 -s $IP.28.0.0/16 -p udp -m string --string 'd1:ad2:id20:' --algo kmp --to 100 -j SET --add-set antizapret-torrent src --exist
 	iptables -w -I FORWARD 5 -s $IP.28.0.0/16 -m set --match-set antizapret-torrent src -j DROP
 fi
+{
+	echo 'create antizapret-forward hash:net -exist'
+	echo 'flush antizapret-forward'
+	if [[ -f result/forward-ips.txt ]]; then
+		while read -r line; do
+			echo "add antizapret-forward $line -exist"
+		done < result/forward-ips.txt
+	fi
+} | ipset restore
 if [[ "$RESTRICT_FORWARD" == 'y' ]]; then
-	{
-		echo 'create antizapret-forward hash:net -exist'
-		echo 'flush antizapret-forward'
-		if [[ -f result/forward-ips.txt ]]; then
-			while read -r line; do
-				echo "add antizapret-forward $line"
-			done < result/forward-ips.txt
-		fi
-	} | ipset restore
 	iptables -w -I FORWARD 2 -s $IP.29.0.0/16 -m connmark --mark 0x1 -m set ! --match-set antizapret-forward dst -j DROP
 fi
 {
@@ -416,7 +416,7 @@ fi
 	echo 'flush antizapret-drop'
 	if [[ -f result/drop-ips.txt ]]; then
 		while read -r cidr; do
-			echo "add antizapret-drop $cidr"
+			echo "add antizapret-drop $cidr -exist"
 		done < result/drop-ips.txt
 	fi
 } | ipset restore
@@ -436,7 +436,7 @@ if [[ "$ATTACK_PROTECTION" == 'y' ]]; then
 		echo 'flush antizapret-allow'
 		if [[ -f result/allow-ips.txt ]]; then
 			while read -r line; do
-				echo "add antizapret-allow $line"
+				echo "add antizapret-allow $line -exist"
 			done < result/allow-ips.txt
 		fi
 	} | ipset restore
@@ -469,7 +469,7 @@ fi
 	echo 'flush antizapret-deny'
 	if [[ -f result/deny-ips.txt ]]; then
 		while read -r cidr; do
-			echo "add antizapret-deny $cidr"
+			echo "add antizapret-deny $cidr -exist"
 		done < result/deny-ips.txt
 	fi
 } | ipset restore
