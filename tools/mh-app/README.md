@@ -12,3 +12,7 @@
 - Filmix, трекеры Лампы (megapeer, bitru, rutor, nnmclub, bigfangroup, anifilm, anilibria, kinozal) - правила на «Исключения (без Proton)» (прямой выход DE2): Proton по IPv6 режется CDN. TorrServer и пиры идут напрямую, в Mihomo их нет.
 - Google по умолчанию - DE2.
 - `server.py` и `router_watch.py` - снимки с DE3 (`/opt/mh-app/server.py`, `/opt/arr-stack/scripts/router_watch.py`), секретов в них нет (они читают `mihomo.secret`/`config.json`).
+
+## Снимок шаблона без секретов
+
+`./snapshot.sh` снимает `/opt/mh-app/templates/home.yaml` с DE3 и подставляет метки `__CONTROLLER_SECRET__`, `__SUB_TOKEN__`, `__LISTS_TOKEN__`. Так делать всегда: 03.11.2026 прямой `scp` занёс реальные значения в публичный репозиторий (история переписана, токены перевыпущены).
