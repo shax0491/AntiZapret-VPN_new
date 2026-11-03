@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.App" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0B0C10</item>
+        <item name="android:windowSplashScreenBackground">#0B0C10</item>
+        <item name="android:windowSplashScreenAnimationDuration">200</item>
+    </style>
+</resources>

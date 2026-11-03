@@ -1,0 +1,6 @@
+build/
+.gradle/
+local.properties
+*.apk
+app/src/main/java/com/kinolink/tv/Secrets.kt
+patch_*.py
