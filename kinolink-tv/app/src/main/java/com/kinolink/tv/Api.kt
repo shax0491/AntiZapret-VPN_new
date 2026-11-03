@@ -30,6 +30,10 @@ enum class Quality(val label: String, val kbps: Int, val h: Int) {
     AUTO("Оригинал", 0, 0), P2160("4K", 40_000, 2160), P1080("1080p", 8_000, 1080), P720("720p", 4_000, 720), P480("480p", 1_500, 480)
 }
 
+/** Номинальное разрешение по ширине кадра: у широких фильмов высота меньше (3840x1600 — это 4K, а не 1600p). */
+fun nomH(w: Int, h: Int): Int = when { w >= 3600 -> 2160; w >= 2400 -> 1440; w >= 1800 -> 1080; w >= 1200 -> 720; w >= 800 -> 480; else -> h }
+fun qLabel(h: Int): String = if (h >= 2000) "4K" else if (h >= 1400) "2K" else "${h}p"
+
 class Api(ctx: Context) {
     private val sp = ctx.getSharedPreferences("kl", Context.MODE_PRIVATE)
     private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
@@ -252,6 +256,12 @@ class Api(ctx: Context) {
         return now
     }
 
+    // ---- Интерфейс: тяжёлые эффекты, которые отключают на слабых устройствах ----
+    var fxAnim: Boolean get() = sp.getBoolean("fx_anim", true); set(v) = sp.edit().putBoolean("fx_anim", v).apply()
+    var fxFocus: Boolean get() = sp.getBoolean("fx_focus", true); set(v) = sp.edit().putBoolean("fx_focus", v).apply()
+    var fxKen: Boolean get() = sp.getBoolean("fx_ken", true); set(v) = sp.edit().putBoolean("fx_ken", v).apply()
+    var fxGlass: Boolean get() = sp.getBoolean("fx_glass", true); set(v) = sp.edit().putBoolean("fx_glass", v).apply()
+
     // ---- Заставка (экранная): настройки хранятся на устройстве ----
     var ssOn: Boolean get() = sp.getBoolean("ss_on", true); set(v) = sp.edit().putBoolean("ss_on", v).apply()
     var ssMin: Int get() = sp.getInt("ss_min", 5); set(v) = sp.edit().putInt("ss_min", v).apply()
@@ -260,24 +270,41 @@ class Api(ctx: Context) {
     private fun tmdbGet(path: String): JSONObject =
         JSONObject(http.newCall(Request.Builder().url("$lampac/tmdb/api/3/$path${if ('?' in path) "&" else "?"}api_key=${Secrets.TMDB}&language=ru-RU&uid=$lampacUid").build()).execute().use { it.body!!.string() })
 
-    private fun tmdbBackdrops(path: String): List<String> {
+    /** Баннер заставки: lang = "ru" или "en" (оба с названием на картинке). Чистые кадры не берём. */
+    data class Ban(val url: String, val lang: String)
+
+    private fun tmdbBackdrops(path: String): List<Ban> {
         val arr = tmdbGet(path).getJSONArray("results")
-        return (0 until arr.length()).map { arr.getJSONObject(it).optString("backdrop_path") }.filter { it.isNotEmpty() }.map { "$lampac/tmdb/img/t/p/w1280$it?uid=$lampacUid" }
+        val kind = if (path.contains("/tv") || path.startsWith("tv")) "tv" else "movie"
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+        try {
+            return (0 until minOf(arr.length(), 40)).map { arr.getJSONObject(it) }.map { r ->
+                pool.submit<Ban?> {
+                    runCatching {
+                        val k = r.optString("media_type").ifEmpty { kind }
+                        val b = tmdbGet("$k/${r.getInt("id")}/images?include_image_language=ru,en").getJSONArray("backdrops")
+                        val l = (0 until b.length()).map { b.getJSONObject(it) }.filter { it.optInt("width") >= 1280 }
+                        fun best(c: String) = l.filter { it.optString("iso_639_1") == c }.maxByOrNull { it.optDouble("vote_average") }
+                        (best("ru") ?: best("en"))?.let { Ban("$lampac/tmdb/img/t/p/w1280${it.optString("file_path")}?uid=$lampacUid", it.optString("iso_639_1")) }
+                    }.getOrNull()
+                }
+            }.mapNotNull { it.get() }
+        } finally { pool.shutdown() }
     }
 
     /** Картинки для заставки по теме: new / trend / library / cartoon / anime / nature (документальное кино о природе). */
-    suspend fun screensaverImages(theme: String): List<String> = withContext(Dispatchers.IO) {
+    suspend fun screensaverImages(theme: String): List<Ban> = withContext(Dispatchers.IO) {
         runCatching {
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
             when (theme) {
                 "trend" -> tmdbBackdrops("trending/all/week")
-                "library" -> catalog("Movie,Series", "DateCreated", 40).filter { it.backdropId.isNotEmpty() }.map { img(it.backdropId, "Backdrop", 1280) }
+                "library" -> catalog("Movie,Series", "DateCreated", 40).filter { it.backdropId.isNotEmpty() }.map { Ban(img(it.backdropId, "Backdrop", 1280), "ru") }
                 "cartoon" -> tmdbBackdrops("discover/movie?with_genres=16&sort_by=popularity.desc")
                 "anime" -> tmdbBackdrops("discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc")
                 "nature" -> tmdbBackdrops("discover/movie?with_genres=99&sort_by=popularity.desc") + tmdbBackdrops("discover/tv?with_genres=99&sort_by=popularity.desc")
                 else -> tmdbBackdrops("discover/movie?sort_by=primary_release_date.desc&primary_release_date.lte=$today&vote_count.gte=15") +
                     tmdbBackdrops("discover/tv?sort_by=first_air_date.desc&first_air_date.lte=$today&vote_count.gte=5")
-            }.shuffled()
+            }.shuffled().sortedBy { it.lang != "ru" } // русские баннеры идут первыми
         }.getOrDefault(emptyList())
     }
 
@@ -370,10 +397,42 @@ class Api(ctx: Context) {
         throw last ?: RuntimeException("lampac")
     }
 
-    suspend fun balancers(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+    private val cardCache = HashMap<String, String>()
+
+    data class Ep(val num: Int, val name: String, val still: String, val date: String, val overview: String)
+
+    /** Серии сезона из TMDB (кадр, название, дата выхода, описание) — для экрана выбора серии, как в Lampa. */
+    suspend fun tmdbSeasonEps(title: String, season: Int): List<Ep> = withContext(Dispatchers.IO) {
         runCatching {
-            val a = JSONArray(http.newCall(Request.Builder().url("$lampac/lite/events?uid=$lampacUid").build()).execute().use { it.body!!.string() })
-            (0 until a.length()).map { a.getJSONObject(it) }.map { it.getString("name") to it.getString("url").substringAfter("9118").substringAfter("8443") }
+            val id = Regex("(?:^|&)id=(\\d+)").find(cardQuery(title, true))!!.groupValues[1]
+            val a = tmdbGet("tv/$id/season/$season").getJSONArray("episodes")
+            (0 until a.length()).map { a.getJSONObject(it) }.map { e ->
+                Ep(e.optInt("episode_number"), e.optString("name"), e.optString("still_path").let { sp -> if (sp.isEmpty()) "" else "$lampac/tmdb/img/t/p/w300$sp?uid=$lampacUid" }, e.optString("air_date"), e.optString("overview"))
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    /** Параметры карточки в том виде, как их шлёт Lampa (id TMDB, imdb, оригинальное название, год, язык): без них многие источники отвечают 503 или отдают мёртвые потоки. */
+    suspend fun cardQuery(title: String, serial: Boolean): String = withContext(Dispatchers.IO) {
+        cardCache.getOrPut("$title|$serial") {
+            runCatching {
+                val kind = if (serial) "tv" else "movie"
+                val id = tmdbGet("search/$kind?query=${e(title)}").getJSONArray("results").getJSONObject(0).getInt("id")
+                val d = tmdbGet("$kind/$id?append_to_response=external_ids")
+                val imdb = d.optString("imdb_id").ifEmpty { d.optJSONObject("external_ids")?.optString("imdb_id") ?: "" }
+                val year = (d.optString("release_date").ifEmpty { d.optString("first_air_date") }).take(4)
+                val orig = d.optString("original_title").ifEmpty { d.optString("original_name") }.ifEmpty { title }
+                "id=$id&imdb_id=$imdb&kinopoisk_id=&title=${e(title)}&original_title=${e(orig)}&serial=${if (serial) 1 else 0}&year=$year&original_language=${d.optString("original_language")}&source=tmdb"
+            }.getOrDefault("")
+        }
+    }
+
+    /** Список источников от сервера для этой карточки (как в Lampa). Пустые навсегда (Kinogo, LeProduction, Kinotochka) не опрашиваем. */
+    suspend fun balancers(qs: String = ""): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val a = JSONArray(http.newCall(Request.Builder().url("$lampac/lite/events?${if (qs.isEmpty()) "" else "$qs&"}uid=$lampacUid").build()).execute().use { it.body!!.string() })
+            val skip = setOf("Kinogo", "LeProduction", "Kinotochka")
+            (0 until a.length()).map { a.getJSONObject(it) }.filter { it.getString("name") !in skip }.map { it.getString("name") to it.getString("url").substringAfter("9118").substringAfter("8443") }
         }.getOrDefault(listOf("Filmix" to "/lite/filmix"))
     }
 
@@ -388,12 +447,29 @@ class Api(ctx: Context) {
             val qo = it.optJSONObject("quality")
             val qm = qo?.keys()?.asSequence()?.associateWith { k -> qo.getString(k) } ?: emptyMap()
             val title = it.optString("name").ifEmpty { it.optString("title") }
-            val isPlay = it.optString("method") == "play"
-            Row(title, if (!isPlay) it.optString("url") else null, if (isPlay) it.optString("url") else null, qm, it.optString("img").ifEmpty { null }?.let { i -> if (i.startsWith("/")) lampac + i else i })
+            val m = it.optString("method")
+            // «call» (HDVB, Aladin и др.): url отдаёт ссылку на поток; готовую ссылку на поток берём из «stream», иначе спрашиваем url
+            val st = if (m == "call") it.optString("stream").ifEmpty { null } else null
+            val rc = if (m == "call" && st == null) runCatching { lampacGet(it.optString("url")) }.getOrNull() else null
+            val rq = rc?.optJSONObject("quality")?.let { q -> q.keys().asSequence().associateWith { k -> q.getString(k) } } ?: qm
+            val pl = st ?: rc?.optString("url")?.ifEmpty { null } ?: if (m == "play") it.optString("url") else null
+            Row(title, if (pl == null && m != "call") it.optString("url") else null, pl, rq, it.optString("img").ifEmpty { null }?.let { i -> if (i.startsWith("/")) lampac + i else i })
         }
         val v = j.optJSONArray("voice")
         val voices = if (v == null) emptyList() else (0 until v.length()).map { v.getJSONObject(it) }.map { it.optString("name") + (if (it.optBoolean("active")) " ●" else "") to it.optString("url") }
         Node(j.optString("type"), voices, rows)
+    }
+
+    /** Проверка HLS-потока источника: null — источник отказал (HTTP-ошибка / не плейлист); список высот из мастер-плейлиста (может быть пустым); при сбое самой проверки — пустой список, озвучку не прячем. */
+    suspend fun hlsInfo(url: String): List<Int>? = withContext(Dispatchers.IO) {
+        try {
+            http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+                if (!r.isSuccessful) { android.util.Log.w("KL", "hls ${r.code} " + url.take(90)); return@use null }
+                val t = r.peekBody(60_000).string()
+                if (!t.startsWith("#EXTM3U")) { android.util.Log.w("KL", "hls not m3u8 " + url.take(90)); return@use null }
+                Regex("""RESOLUTION=(\d+)x(\d+)""").findAll(t).map { nomH(it.groupValues[1].toInt(), it.groupValues[2].toInt()) }.distinct().sortedDescending().toList()
+            }
+        } catch (e: Exception) { android.util.Log.w("KL", "hls check failed: ${e.message}"); emptyList() }
     }
 
     /** Тренды недели (TMDB через прокси Lampac): клик по карточке запускает единый поиск по названию. */
@@ -427,8 +503,8 @@ class Api(ctx: Context) {
         }
     }
 
-    fun searchUrl(balancer: String, title: String, serial: Boolean) =
-        "$balancer?title=${e(title)}&original_title=${e(title)}&serial=${if (serial) 1 else 0}"
+    fun searchUrl(balancer: String, title: String, serial: Boolean, qs: String = "") =
+        if (qs.isNotEmpty()) "$balancer?$qs" else "$balancer?title=${e(title)}&original_title=${e(title)}&serial=${if (serial) 1 else 0}"
 
     // ---- Раздачи: поиск через Prowlarr на сервере Lampac (/prowlarr/search) и запуск в TorrServer ----
     data class Tor(val title: String, val tracker: String, val size: Long, val seeders: Int, val peers: Int, val link: String)
@@ -447,6 +523,15 @@ class Api(ctx: Context) {
                 Tor(o.optString("Title"), o.optString("Tracker"), o.optLong("Size"), o.optInt("Seeders"), o.optInt("Peers"), link)
             }.getOrNull()
         }.sortedByDescending { it.seeders }
+    }
+
+    data class TorStat(val peers: Int, val total: Int, val seeders: Int, val speed: Double, val pre: Long, val preSize: Long, val text: String)
+
+    /** Состояние раздачи в TorrServer (пиры, скорость, предзагрузка) для экрана ожидания. */
+    suspend fun torrentStat(hash: String): TorStat = withContext(Dispatchers.IO) {
+        val t = JSONObject(call("POST", "$ts/torrents", JSONObject().put("action", "get").put("hash", hash).toString(), false))
+        TorStat(t.optInt("active_peers"), t.optInt("total_peers"), t.optInt("connected_seeders"), t.optDouble("download_speed", 0.0),
+            t.optLong("preloaded_bytes"), t.optLong("preload_size"), t.optString("stat_string"))
     }
 
     /** Добавляет раздачу в TorrServer, ждёт список файлов и возвращает видеофайлы как элементы с готовой ссылкой на поток. */
