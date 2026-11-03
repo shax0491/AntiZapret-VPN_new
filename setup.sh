@@ -47,7 +47,7 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 		ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y \
 		OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y \
 		TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y \
-		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y; do
+		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n; do
 		AZ_DEFAULT_NAME="${AZ_DEFAULT%%=*}"
 		if [[ -z "${!AZ_DEFAULT_NAME}" ]]; then
 			printf -v "$AZ_DEFAULT_NAME" '%s' "${AZ_DEFAULT#*=}"
@@ -678,7 +678,7 @@ else
 	INSTALL="linux-image-$ARCH linux-headers-$ARCH"
 fi
 apt-mark unhold $KERNEL_META &>/dev/null || true
-apt-get install -y $INSTALL git make openvpn iptables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms conntrack
+apt-get install -y $INSTALL git make openvpn iptables nftables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms conntrack
 # Общая служба openvpn не нужна: серверы запускаются через openvpn-server@
 systemctl disable --now openvpn 2>/dev/null || true
 # Заголовки текущего ядра для сборки модуля AmneziaWG; старого ядра в репозитории может уже не быть
@@ -823,6 +823,7 @@ DIGITALOCEAN_INCLUDE=$DIGITALOCEAN_INCLUDE
 OVH_INCLUDE=$OVH_INCLUDE
 GOOGLE_INCLUDE=$GOOGLE_INCLUDE
 AKAMAI_INCLUDE=$AKAMAI_INCLUDE
+RECONNECT_WARP=${RECONNECT_WARP:-n}
 CLEAR_HOSTS=y
 TXQUEUELEN=10000
 MTU=$VPN_MTU

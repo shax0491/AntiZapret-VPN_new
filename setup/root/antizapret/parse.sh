@@ -373,12 +373,15 @@ fi
 
 # WARP со временем начинает тупить, переподключение лечит (апстрим 34ee7cf0); конфиги не меняются.
 # Правило kresd@2 -> таблица WARP (up.sh) от интерфейса не зависит и переживает переподключение
+# Апстрим 02.11: переподключение только при RECONNECT_WARP=y (по умолчанию n): у Proton-ключей каждый перезапуск туннеля - новое подключение к лимиту аккаунта
+if [[ "$RECONNECT_WARP" == 'y' ]]; then
 for iface in warp-antizapret warp-vpn; do
 	if [[ -f "/etc/wireguard/$iface.conf" ]] && ip link show dev $iface &>/dev/null; then
 		wg-quick down $iface 2>/dev/null && wg-quick up $iface 2>/dev/null
 		echo "Reconnect $iface"
 	fi
 done
+fi
 
 # WARP DNS
 DNS_WARP_INTERFACE=warp-dns

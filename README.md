@@ -91,7 +91,7 @@ AntiZapret VPN реализует технологию раздельного т
 - Порт клиента: при создании каждого клиента выбирается случайный порт из диапазона **51900–51999** (уже занятые исключаются). В `Endpoint` конфига — этот порт; на узле `REDIRECT` переводит его на ListenPort `51821`. Порт `51821` тоже работает.
 - Файлы профилей: `/root/antizapret/client/amneziawg3/antizapret/antizapret-<имя>-awg3.conf` и `/root/antizapret/client/amneziawg3/vpn/vpn-<имя>-awg3.conf` (права 600), рядом с профилями AmneziaWG 1.5 и 2.0.
 - Systemd: `awg3@awg1` (включается установкой). Скрипты: `/usr/local/sbin/awg3-up.sh`, `/usr/local/sbin/awg3-rules.sh`.
-- Правила файрвола для обеих подсетей: DNAT DNS, метка соединения и DROP по набору `antizapret-forward` (только для антизапрета), подмена фиктивных адресов `ANTIZAPRET-MAPPING`, MSS-clamp, masquerade через выходной интерфейс.
+- Правила файрвола для обеих подсетей: DNAT DNS, метка соединения и DROP по набору `antizapret-forward` (только для антизапрета), подмена фиктивных адресов (nft: таблица `ip antizapret`, карта `mapping`, набор `warp`, хуки `mapping_hook` и `warp_hook`), MSS-clamp, masquerade через выходной интерфейс.
 
 Клиентов создаёт панель на странице «Клиенты» (протокол «AmneziaWG 3», режим антизапрет или полный VPN) через агент ноды. Готовые списки маршрутов для роутеров (Keenetic, MikroTik) — `keenetic-amneziawg3-routes.txt` и `mikrotik-amneziawg3-routes.txt` в `result/`, генерируются `parse.sh`. Клиентские конфиги, клиенты с режимами и ключи — в панели, на ноде в `/etc/amnezia/amneziawg3/clients.json` (права 600).
 

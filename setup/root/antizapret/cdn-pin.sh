@@ -115,13 +115,13 @@ if [[ "$OLD" != "$NEW" ]]; then
 	echo "kresd@2, kresd@3 restarted"
 fi
 
-# Подменные адреса, уже выданные клиентам и ведущие на неработающий узел
+# Подменные адреса, уже выданные клиентам и ведущие на неработающий узел (карта mapping в nft, апстрим 02.11)
 for bad in "${!BAD_TO_GOOD[@]}"; do
-	iptables -w -t nat -S ANTIZAPRET-MAPPING 2>/dev/null | grep -E -- "--to-destination ${bad//./\\.}$" | grep -oE -- '-d [0-9.]+/32' | awk '{print $2}' |
+	nft list map ip antizapret mapping 2>/dev/null | grep -oE "[0-9]+([.][0-9]+){3} : ${bad//./\.}([^0-9]|$)" | awk '{print $1}' |
 	while read -r fake; do
-		iptables -w -t nat -D ANTIZAPRET-MAPPING -d "$fake" -j DNAT --to-destination "$bad" &&
-		iptables -w -t nat -A ANTIZAPRET-MAPPING -d "$fake" -j DNAT --to-destination "${BAD_TO_GOOD[$bad]}" &&
-		conntrack -D -d "${fake%/32}" &>/dev/null
+		nft delete element ip antizapret mapping "{ $fake }" &&
+		nft add element ip antizapret mapping "{ $fake : ${BAD_TO_GOOD[$bad]} }" &&
+		conntrack -D -d "$fake" &>/dev/null
 		echo "remap $fake: $bad -> ${BAD_TO_GOOD[$bad]}"
 	done
 done
