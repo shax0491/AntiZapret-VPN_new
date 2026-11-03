@@ -44,30 +44,6 @@ _rt_lock = threading.Lock()
 AWG_NAMES = ("none", "DE1", "DE2", "NL2")
 
 
-def px_leaf(px, name):
-    """Конечный узел за цепочкой групп (Авто -> Основные (Balancing) -> узел)."""
-    seen = set()
-    while name in px and px[name].get("type") in ("Selector", "URLTest", "Fallback") and name not in seen:
-        seen.add(name)
-        nxt = px[name].get("now")
-        if not nxt:
-            break
-        name = nxt
-    return name if name != AUTO else None
-
-
-def deep_now(name):
-    seen = set()
-    while name not in seen:
-        seen.add(name)
-        o = mihomo("/proxies/" + urllib.parse.quote(name))
-        nxt = o.get("now")
-        if not nxt or o.get("type") not in ("Selector", "URLTest", "Fallback"):
-            return nxt if o.get("type") in ("Selector", "URLTest", "Fallback") else name
-        name = nxt
-    return name
-
-
 def rt_run(cmd, timeout=25):
     r = subprocess.run(["ssh", "-p", RT_PORT, "-i", RT_KEY, "-o", "UserKnownHostsFile=" + RT_KNOWN, "-o", "StrictHostKeyChecking=accept-new",
                         "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "root@" + RT_HOST, cmd],
@@ -229,7 +205,7 @@ def poller():
             except Exception:
                 pass
         try:
-            now = deep_now(AUTO)
+            now = mihomo("/proxies/" + urllib.parse.quote(AUTO)).get("now")
             if now and last and now != last:
                 with _lock:
                     h = load_hist()
@@ -283,14 +259,7 @@ def build_state_from(px, ver, hist):
         return leaf(name)[1]
 
     auto = px.get(AUTO, {})
-    # «Авто» = fallback над скрытой группой «Основные (...)»: показываем её узлы (с флагами), а не саму группу
-    inner_auto = [n for n in auto.get("all", []) if (px.get(n) or {}).get("hidden")]
-    auto_nodes = []
-    for n in auto.get("all", []):
-        if n in inner_auto:
-            auto_nodes += [{"name": c, "delay": shown(c)} for c in px[n].get("all", [])]
-        else:
-            auto_nodes.append({"name": n, "delay": shown(n)})
+    auto_nodes = [{"name": n, "delay": shown(n)} for n in auto.get("all", [])]
     chk = px.get(CHECK, {})
     extra = []
     for n in chk.get("all", []):
@@ -316,8 +285,8 @@ def build_state_from(px, ver, hist):
     mode = {"available": AUTO2 in px, "awg2": n2, "awg3": n3,
             "value": "mixed" if (n2 and n3) else ("awg2" if n2 else "awg3")}
     return {"version": ver, "now": int(time.time()), "mode": mode,
-            "auto": {"name": AUTO, "now": leaf(AUTO)[0] if auto else None, "fixed": auto.get("fixed") or next((px[n].get("fixed") for n in inner_auto if px[n].get("fixed")), None), "icon": auto.get("icon"), "nodes": auto_nodes},
-            "extra": extra, "groups": groups, "history": [h for h in hist if not any(k in str(h.get("from")) + str(h.get("to")) for k in ("Balancing", "· основные", "Резерв:"))][-30:][::-1]}
+            "auto": {"name": AUTO, "now": auto.get("now"), "fixed": auto.get("fixed") or None, "icon": auto.get("icon"), "nodes": auto_nodes},
+            "extra": extra, "groups": groups, "history": hist[-30:][::-1]}
 
 
 def urltest_order(px):
@@ -372,8 +341,8 @@ def work_report(data):
     if not isinstance(px, dict) or not px:
         raise ValueError("пустое состояние")
     with _lock:
-        prev = px_leaf(WORK["px"] or {}, AUTO)
-        cur = px_leaf(px, AUTO)
+        prev = (WORK["px"] or {}).get(AUTO, {}).get("now")
+        cur = px.get(AUTO, {}).get("now")
         if prev and cur and prev != cur:
             h = work_hist()
             h.append({"t": int(time.time()), "group": AUTO, "from": prev, "to": cur})
@@ -668,17 +637,12 @@ class H(BaseHTTPRequestHandler):
             px = mihomo("/proxies").get("proxies", {})
             g = px.get(group)
             is_auto = bool(g) and g.get("type") in ("URLTest", "Fallback")
-            inner = [n for n in (g or {}).get("all", []) if (px.get(n) or {}).get("hidden")] if is_auto else []
-            via = next((n for n in inner if name in px[n].get("all", [])), None)   # узел внутри скрытой группы «Основные»
-            if not g or not (g.get("type") == "Selector" or is_auto) or group in HIDE_GROUPS                     or not (name in g.get("all", []) or via or (is_auto and name == "__auto")):
+            if not g or not (g.get("type") == "Selector" or is_auto) or group in HIDE_GROUPS                     or not (name in g.get("all", []) or (is_auto and name == "__auto")):
                 return self._send(400, {"error": "недопустимая группа или узел"})
             old = g.get("now")
             if is_auto and name == "__auto":
-                for n in [group] + inner:
-                    mihomo("/proxies/" + urllib.parse.quote(n), "DELETE")
+                mihomo("/proxies/" + urllib.parse.quote(group), "DELETE")
                 name = "автовыбор"
-            elif via:
-                mihomo("/proxies/" + urllib.parse.quote(via), "PUT", {"name": name})
             else:
                 mihomo("/proxies/" + urllib.parse.quote(group), "PUT", {"name": name})
             with _lock:

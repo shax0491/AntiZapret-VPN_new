@@ -136,19 +136,9 @@ def auto_switch(st):
     """Сообщить о переключении «Авто», только когда новый узел устоялся (держится AUTO_HOLD) и не чаще AUTO_GAP."""
     try:
         sec = open("/opt/mh-app/mihomo.secret", encoding="utf-8").read().strip()
-        def get(n):
-            req = urllib.request.Request("http://127.0.0.1:19090/proxies/" + urllib.parse.quote(n), headers={"Authorization": "Bearer " + sec})
-            return json.loads(urllib.request.urlopen(req, timeout=8).read())
-        g = get("Авто — самый быстрый")
+        req = urllib.request.Request("http://127.0.0.1:19090/proxies/" + urllib.parse.quote("Авто — самый быстрый"), headers={"Authorization": "Bearer " + sec})
+        g = json.loads(urllib.request.urlopen(req, timeout=8).read())
         now = g.get("now")
-        for _ in range(3):   # «Авто» теперь fallback над «Основные (Balancing)»: раскрываем до конечного узла
-            try:
-                o = get(now)
-            except Exception:    # конечный узел лежит в провайдере и по /proxies/ не отдаётся - значит, дошли
-                break
-            if o.get("type") not in ("URLTest", "Fallback", "Selector") or not o.get("now"):
-                break
-            now = o["now"]
     except Exception:
         return
     if not now:

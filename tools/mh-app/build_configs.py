@@ -38,7 +38,7 @@ def build(tpl, nodes, work):
     res = [n for n in nodes if n.get("reserve")]
     rkeys = "|".join(n["key"] for n in res)
     mkeys = "|".join(n["key"] for n in main)
-    res_name = "Резерв (Fallback)" if res else None
+    res_name = "🌍 Резерв: " + " · ".join(n["key"] for n in res) if res else None
     names = [group_name(n) for n in main] + ([res_name] if res else [])
     out, section, skip = [], None, False
     server_groups_done = False
@@ -90,13 +90,7 @@ def build(tpl, nodes, work):
                 if kind == "Proton" and npk:
                     o["filter"] += "|(%s) \\| VLESS прямой" % "|".join(npk)
                 if res:
-                    # Резерв (FI1/FR1/LV1) - только если ВСЕ основные узлы медленнее 150 мс или недоступны.
-                    # Основные балансируются между собой в скрытой группе «Основные (Balancing)» (url-test, tolerance 20);
-                    # поверх неё fallback: пока быстрейший основной укладывается в 150 мс - используется он, иначе - резерв.
-                    inner = dict(o, name="Основные (Balancing)" if kind == "Proton" else "Основные без Proton (Balancing)", tolerance=20, hidden=True)
-                    out.append("  - " + json.dumps(inner, ensure_ascii=False))
-                    o = {"name": o["name"], "type": "fallback", "proxies": [inner["name"], res_name],
-                         "url": o["url"], "interval": 60, "timeout": 150, "lazy": False, "icon": o["icon"]}
+                    o["proxies"] = [res_name]                          # + одна карточка резерва
                 out.append("  - " + json.dumps(o, ensure_ascii=False))
                 if res and kind == "прямой":       # карточка резерва: быстрейшая из карточек запасных серверов
                     out.append("  - " + json.dumps(dict({"name": res_name, "type": "url-test",
@@ -182,6 +176,5 @@ NODES_ALL = json.load(open(BASE + "/nodes.json", encoding="utf-8"))["nodes"]
 if __name__ == "__main__":
     tpl = open(BASE + "/templates/home.yaml", encoding="utf-8").read().split("\n")
     ok = publish("home-config.yaml", build(tpl, NODES_ALL, False))
-    work_cfg = build(tpl, [n for n in NODES_ALL if n.get("work", True)], True)
-    ok = publish("work-config.yaml", work_cfg) and ok
+    ok = publish("work-config.yaml", build(tpl, [n for n in NODES_ALL if n.get("work", True)], True)) and ok
     sys.exit(0 if ok else 1)
