@@ -207,15 +207,6 @@ PUBLIC_KEY=${PUBLIC_KEY}" > /etc/wireguard/key
 	fi
 }
 
-# Dual-stack (необязательно): флаг-файл /etc/wireguard/ipv6-enabled. 10.28.A.B -> fdaf:2800:A::B (Full VPN), 10.29.A.B -> fdaf:2900:A::B (AntiZapret).
-# Узел должен делать NAT66 для этих ULA (nft table ip6 az_nat66). Без файла переменные пустые и профили не меняются.
-setClientIPv6(){
-	CLIENT_ADDR6=""; ALLOWED6=""; PEER6=""
-	[[ -f /etc/wireguard/ipv6-enabled ]] || return 0
-	local a b c d; IFS=. read -r a b c d <<< "$CLIENT_IP"
-	PEER6=", fdaf:2${b: -1}00:${c}::${d}/128"; CLIENT_ADDR6="$PEER6"; ALLOWED6=", ::/0"
-}
-
 addWireGuard(){
 	setServerHost_FileName "$WIREGUARD_HOST"
 	echo
@@ -269,7 +260,6 @@ AllowedIPs = ${CLIENT_IP}/32
 		CLIENT_PUBLIC_KEY="$(echo "$CLIENT_BLOCK" | grep 'PublicKey =' | cut -d '=' -f 2- | sed 's/ //g')"
 		CLIENT_PRESHARED_KEY="$(echo "$CLIENT_BLOCK" | grep 'PresharedKey =' | cut -d '=' -f 2- | sed 's/ //g')"
 		CLIENT_IP="$(echo "$CLIENT_BLOCK" | grep 'AllowedIPs =' | cut -d '=' -f 2- | sed 's/ //g' | cut -d '/' -f 1)"
-		setClientIPv6
 		echo 'Client (VPN) with that name already exists! Please enter different name for new client'
 	else
 		CLIENT_PRIVATE_KEY="$(wg genkey)"
@@ -286,13 +276,12 @@ AllowedIPs = ${CLIENT_IP}/32
 				exit 6
 			fi
 		done
-		setClientIPv6
 		echo "# Client = ${CLIENT_NAME}
 # PrivateKey = ${CLIENT_PRIVATE_KEY}
 [Peer]
 PublicKey = ${CLIENT_PUBLIC_KEY}
 PresharedKey = ${CLIENT_PRESHARED_KEY}
-AllowedIPs = ${CLIENT_IP}/32${PEER6}
+AllowedIPs = ${CLIENT_IP}/32
 " >> "/etc/wireguard/vpn.conf"
 		wg syncconf vpn <(wg-quick strip vpn 2>/dev/null) &>/dev/null || true
 	fi

@@ -2,26 +2,25 @@
 # -*- coding: utf-8 -*-
 
 import re,subprocess,time,argparse,threading,os
-from ipaddress import IPv4Network,IPv6Network
-from dnslib import DNSRecord,RCODE,QTYPE,A,AAAA
+from ipaddress import IPv4Network
+from dnslib import DNSRecord,RCODE,QTYPE,A
 from dnslib.server import DNSServer,DNSHandler,BaseResolver,DNSLogger,TCPServer
 
 class ProxyResolver(BaseResolver):
-    def __init__(self,dns,dns_port,dns_timeout,fake_cidr,dns_ttl,expire,fake_cidr6="",table="antizapret"):
+    def __init__(self,dns,dns_port,dns_timeout,fake_cidr,dns_ttl,expire):
         self._env=os.environ.copy()
-        self.table=table
         self.ip_pool={str(x) for x in IPv4Network(fake_cidr).hosts()}
         self.ip_map={}
         # Loading existing fake IP mapping
-        mapping=subprocess.run(["/usr/sbin/nft","list","map","ip",self.table,"mapping"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=self._env)
+        mapping=subprocess.run(["/usr/sbin/nft","list","map","ip","antizapret","mapping"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=self._env)
         if mapping.returncode:
-            subprocess.run(["/usr/sbin/nft","add","table","ip",self.table],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
-            subprocess.run(["/usr/sbin/nft","add","map","ip",self.table,"mapping","{","type","ipv4_addr",":","ipv4_addr",";","size","131072",";","}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+            subprocess.run(["/usr/sbin/nft","add","table","ip","antizapret"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
+            subprocess.run(["/usr/sbin/nft","add","map","ip","antizapret","mapping","{","type","ipv4_addr",":","ipv4_addr",";","size","131072",";","}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
         warp_ips=set()
-        warp=subprocess.run(["/usr/sbin/nft","list","set","ip",self.table,"warp"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=self._env)
+        warp=subprocess.run(["/usr/sbin/nft","list","set","ip","antizapret","warp"],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=self._env)
         if warp.returncode:
-            subprocess.run(["/usr/sbin/nft","add","table","ip",self.table],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
-            subprocess.run(["/usr/sbin/nft","add","set","ip",self.table,"warp","{","type","ipv4_addr",";","size","131072",";","}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+            subprocess.run(["/usr/sbin/nft","add","table","ip","antizapret"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
+            subprocess.run(["/usr/sbin/nft","add","set","ip","antizapret","warp","{","type","ipv4_addr",";","size","131072",";","}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
         else:
             warp_ips.update(re.findall(r"\d+\.\d+\.\d+\.\d+",warp.stdout))
         now=time.time()
@@ -29,21 +28,11 @@ class ProxyResolver(BaseResolver):
             if not self.mapping_ip(real_ip,fake_ip,now,fake_ip in warp_ips):
                 print("Restarting: Invalid loaded fake IP mapping")
                 try:
-                    subprocess.run(["/usr/sbin/nft","flush","map","ip",self.table,"mapping"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
-                    subprocess.run(["/usr/sbin/nft","flush","set","ip",self.table,"warp"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                    subprocess.run(["/usr/sbin/nft","flush","map","ip","antizapret","mapping"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                    subprocess.run(["/usr/sbin/nft","flush","set","ip","antizapret","warp"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
                 finally:
                     os._exit(1)
         print(f"Loaded: {len(self.ip_map)} fake IPs")
-        # IPv6 (необязательно): фиктивные адреса из fake_cidr6 -> настоящие, карта ip6 <table> mapping6; после перезапуска карта пустая (TTL короткий)
-        self.pool6=IPv6Network(fake_cidr6) if fake_cidr6 else None
-        self.ip_map6={}
-        self.next6=1
-        self.free6=[]
-        if self.pool6:
-            nft=lambda *a,check=False: subprocess.run(["/usr/sbin/nft",*a],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=check,env=self._env)
-            nft("add","table","ip6",self.table)
-            nft("add","map","ip6",self.table,"mapping6","{","type","ipv6_addr",":","ipv6_addr",";","size","131072",";","}",check=True)
-            nft("flush","map","ip6",self.table,"mapping6",check=True)
         self.dns=dns
         self.dns_port=dns_port
         self.dns_timeout=dns_timeout
@@ -66,43 +55,18 @@ class ProxyResolver(BaseResolver):
             self.ip_map[(real_ip,warp)]={"fake_ip": fake_ip,"used": now}
         try:
             if warp:
-                subprocess.run(["/usr/sbin/nft","add","element","ip",self.table,"warp","{",fake_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
-            subprocess.run(["/usr/sbin/nft","add","element","ip",self.table,"mapping","{",fake_ip,":",real_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                subprocess.run(["/usr/sbin/nft","add","element","ip","antizapret","warp","{",fake_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+            subprocess.run(["/usr/sbin/nft","add","element","ip","antizapret","mapping","{",fake_ip,":",real_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
         except Exception as e:
             print(f"Error: {e} (real_ip={real_ip} fake_ip={fake_ip} warp={warp})")
             with self.lock:
                 del self.ip_map[(real_ip,warp)]
                 self.ip_pool.add(fake_ip)
             if warp:
-                subprocess.run(["/usr/sbin/nft","delete","element","ip",self.table,"warp","{",fake_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
-            subprocess.run(["/usr/sbin/nft","delete","element","ip",self.table,"mapping","{",fake_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
+                subprocess.run(["/usr/sbin/nft","delete","element","ip","antizapret","warp","{",fake_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
+            subprocess.run(["/usr/sbin/nft","delete","element","ip","antizapret","mapping","{",fake_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False,env=self._env)
             return None
         #print(f"Mapping: {fake_ip} to {real_ip} warp={warp}")
-        return fake_ip
-
-    def get_fake_ip6(self,real_ip,now):
-        with self.lock:
-            entry=self.ip_map6.get(real_ip)
-            if entry:
-                entry["used"]=now
-                return entry["fake_ip"]
-            if self.free6:
-                fake_ip=self.free6.pop()
-            elif self.next6<self.pool6.num_addresses-1:
-                fake_ip=str(self.pool6[self.next6])
-                self.next6+=1
-            else:
-                print("Error: No fake IPv6 left in pool")
-                return None
-            self.ip_map6[real_ip]={"fake_ip": fake_ip,"used": now}
-        try:
-            subprocess.run(["/usr/sbin/nft","add","element","ip6",self.table,"mapping6","{",fake_ip,":",real_ip,"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
-        except Exception as e:
-            print(f"Error: {e} (real_ip6={real_ip} fake_ip6={fake_ip})")
-            with self.lock:
-                del self.ip_map6[real_ip]
-                self.free6.append(fake_ip)
-            return None
         return fake_ip
 
     def mapping_ip(self,real_ip,fake_ip,now,warp):
@@ -126,8 +90,8 @@ class ProxyResolver(BaseResolver):
                 print(f"Error: {e}")
                 print("Restarting: Expire fake IP mapping failed")
                 try:
-                    subprocess.run(["/usr/sbin/nft","flush","map","ip",self.table,"mapping"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
-                    subprocess.run(["/usr/sbin/nft","flush","set","ip",self.table,"warp"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                    subprocess.run(["/usr/sbin/nft","flush","map","ip","antizapret","mapping"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
+                    subprocess.run(["/usr/sbin/nft","flush","set","ip","antizapret","warp"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
                 finally:
                     os._exit(2)
 
@@ -147,21 +111,11 @@ class ProxyResolver(BaseResolver):
                     warp_ips.append(fake_ip)
                 mapping_ips.append(fake_ip)
                 #print(f"Unmapping: {fake_ip} to {real_ip} warp={warp}")
-        if self.pool6:
-            with self.lock:
-                now=time.time()
-                exp6=[(r,e["fake_ip"]) for r,e in self.ip_map6.items() if now-e["used"]>self.expire]
-                for r,f in exp6:
-                    del self.ip_map6[r]
-                    self.free6.append(f)
-            if exp6:
-                subprocess.run(["/usr/sbin/nft","delete","element","ip6",self.table,"mapping6","{",", ".join(f for _,f in exp6),"}"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
-                print(f"Expired: {len(exp6)} fake IPv6")
         if expired:
             rules=[]
             if warp_ips:
-                rules.append(f"delete element ip {self.table} warp "+"{ "+", ".join(warp_ips)+" }")
-            rules.append(f"delete element ip {self.table} mapping "+"{ "+", ".join(mapping_ips)+" }")
+                rules.append("delete element ip antizapret warp { "+", ".join(warp_ips)+" }")
+            rules.append("delete element ip antizapret mapping { "+", ".join(mapping_ips)+" }")
             subprocess.run(["/usr/sbin/nft","-f","-"],input="\n".join(rules).encode(),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
             print(f"Expired: {len(expired)} fake IPs")
 
@@ -186,18 +140,6 @@ class ProxyResolver(BaseResolver):
                         reply.header.rcode=RCODE.SERVFAIL
                         return reply
                     record.rdata=A(fake_ip)
-            elif request.q.qtype==QTYPE.AAAA and self.pool6 and not warp:
-                now=time.time()
-                for record in reply.rr:
-                    record.ttl=self.dns_ttl
-                    if record.rtype!=QTYPE.AAAA:
-                        continue
-                    fake_ip=self.get_fake_ip6(str(record.rdata),now)
-                    if not fake_ip:
-                        reply=request.reply()
-                        reply.header.rcode=RCODE.SERVFAIL
-                        return reply
-                    record.rdata=AAAA(fake_ip)
         except Exception as e:
             print(f"Error: {e} (qname={request.q.qname} qtype={QTYPE[request.q.qtype]} protocol={handler.protocol})")
             reply=request.reply()
@@ -209,8 +151,6 @@ if __name__=="__main__":
     p.add_argument("--dns",default="127.3.3.3:53",help="Upstream DNS server:port (default: 127.3.3.3:53)")
     p.add_argument("--dns-timeout",type=float,default=5,help="Upstream DNS timeout (default: 5s)")
     p.add_argument("--fake-cidr",default="198.18.0.0/15",help="Fake IP CIDR (default: 198.18.0.0/15)")
-    p.add_argument("--fake-cidr6",default="",help="Fake IPv6 CIDR for AAAA (default: empty = IPv6 disabled)")
-    p.add_argument("--table",default="antizapret",help="nft table name for ip/ip6 maps (default: antizapret)")
     p.add_argument("--dns-ttl",type=int,default=300,help="TTL in seconds for A records (default: 300)")
     p.add_argument("--expire",type=int,default=3600,help="Seconds of inactivity before fake IP is removed (default: 3600)")
     p.add_argument("--proxy",default="127.4.4.4:53",help="Local Fake IP proxy listen address:port (default: 127.4.4.4:53)")
@@ -226,7 +166,7 @@ if __name__=="__main__":
     args.warp_port=int(args.warp_port or 53)
     TCPServer.request_queue_size=128
     print("Starting...")
-    resolver=ProxyResolver(args.dns,args.dns_port,args.dns_timeout,args.fake_cidr,args.dns_ttl,args.expire,args.fake_cidr6,args.table)
+    resolver=ProxyResolver(args.dns,args.dns_port,args.dns_timeout,args.fake_cidr,args.dns_ttl,args.expire)
     logger=DNSLogger(args.log,prefix=args.log_prefix)
     def start_server(address,port,tcp=False):
         server=DNSServer(resolver,port=port,address=address,tcp=tcp,logger=logger,handler=DNSHandler)
