@@ -1,3 +1,5 @@
+#!/bin/bash
+# Откат IPv6 на узле с Proton: UseIPv4 в xray, без ::/0 и ip -6 в proton.conf, без v6-адреса на proton. Запускать на узле от root.
 set -e
 ts=$(date +%Y%m%d%H%M)
 cp /opt/xray-az/config.json /opt/xray-az/config.json.bak-rollback-$ts
