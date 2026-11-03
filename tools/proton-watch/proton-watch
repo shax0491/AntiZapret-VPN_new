@@ -1,6 +1,6 @@
 #!/bin/bash
-# Сторож Proton-туннелей узла: раз в 5 минут рукопожатие + реальный выход через каждый интерфейс.
-# Два сбоя подряд - сообщение в Telegram через управляющий сервер (REKEY_URL/REKEY_TOKEN из /etc/proton-pick.conf),
+# Сторож Proton-туннелей узла: раз в минуту рукопожатие + реальный выход через каждый интерфейс.
+# Сбой подтверждается повторной проверкой через 15 с и сразу уходит сообщением в Telegram через управляющий сервер (REKEY_URL/REKEY_TOKEN из /etc/proton-pick.conf),
 # потом сообщение о восстановлении. Журнал: /var/log/proton-watch.log
 . /etc/proton-pick.conf
 LOG=/var/log/proton-watch.log; ST=/var/lib/proton-watch; HOST=$(hostname)
@@ -8,16 +8,19 @@ mkdir -p $ST
 alert() { curl -s -m 10 -X POST -H "X-Rekey-Token: $REKEY_TOKEN" -H 'Content-Type: application/json' \
   -d "{\"alert\":\"$1\"}" "$REKEY_URL" >/dev/null || true; }
 for i in $(ip -br link | awk '$1 ~ /^(warp-|proton)/{print $1}'); do
-  hs=$(wg show "$i" latest-handshakes | awk '{print ($2>0)?systime()-$2:99999}')
-  code=$(curl -s -m 8 -o /dev/null -w '%{http_code}' --interface "$i" https://www.gstatic.com/generate_204)
+  check() {
+    hs=$(wg show "$i" latest-handshakes | awk '{print ($2>0)?systime()-$2:99999}')
+    code=$(curl -s -m 8 -o /dev/null -w '%{http_code}' --interface "$i" https://www.gstatic.com/generate_204)
+    ok=1; { [ "$hs" -gt 240 ] || [ "$code" != 204 ]; } && ok=0
+  }
+  check; [ $ok = 0 ] && { sleep 15; check; }   # одиночный сбой не считаем
   rx=$(wg show "$i" transfer | awk '{print $2}'); tx=$(wg show "$i" transfer | awk '{print $3}')
-  ok=1; { [ "$hs" -gt 240 ] || [ "$code" != 204 ]; } && ok=0
   echo "$(date '+%F %T') $HOST $i hs=${hs}s http=$code rx=$rx tx=$tx ok=$ok" >> $LOG
   f=$ST/$i.fail; n=$(cat $f 2>/dev/null || echo 0)
   if [ $ok = 0 ]; then n=$((n+1)); echo $n > $f
-    [ $n = 2 ] && alert "туннель $i не работает (handshake ${hs}s, http $code) - ведётся наблюдение proton-watch"
+    [ $n = 1 ] && alert "туннель $i не работает (handshake ${hs}s, http $code) - ведётся наблюдение proton-watch"
   else
-    [ "$n" -ge 2 ] && alert "туннель $i снова работает"
+    [ "$n" -ge 1 ] && alert "туннель $i снова работает"
     echo 0 > $f
   fi
 done

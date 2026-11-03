@@ -10,7 +10,7 @@ allow-lan: true
 bind-address: "*"
 mode: rule
 log-level: info
-ipv6: false
+ipv6: true
 unified-delay: true
 tcp-concurrent: true
 geodata-loader: memconservative
@@ -39,7 +39,7 @@ sniffer:
 dns:
   enable: true
   listen: 0.0.0.0:7874
-  ipv6: false
+  ipv6: true
   # redir-host: устройствам отдаются настоящие адреса (UDP, звонки, игры работают как обычно), а mihomo помнит домен
   enhanced-mode: redir-host
   # как у AntiZapret: обычные сайты - российский DNS напрямую (адреса, которые работают из РФ: они и идут напрямую),

@@ -1,8 +1,8 @@
 [Unit]
-Description=Proton tunnels watchdog every 5 minutes
+Description=Proton tunnels watchdog every minute
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnUnitActiveSec=1min
 AccuracySec=20s
 [Install]
 WantedBy=timers.target

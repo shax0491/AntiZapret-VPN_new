@@ -182,5 +182,7 @@ NODES_ALL = json.load(open(BASE + "/nodes.json", encoding="utf-8"))["nodes"]
 if __name__ == "__main__":
     tpl = open(BASE + "/templates/home.yaml", encoding="utf-8").read().split("\n")
     ok = publish("home-config.yaml", build(tpl, NODES_ALL, False))
-    ok = publish("work-config.yaml", build(tpl, [n for n in NODES_ALL if n.get("work", True)], True)) and ok
+    # рабочий роутер без IPv6 (за Fortinet, 256 МБ): ipv6 остаётся выключенным
+    work_cfg = build(tpl, [n for n in NODES_ALL if n.get("work", True)], True).replace("ipv6: true", "ipv6: false")
+    ok = publish("work-config.yaml", work_cfg) and ok
     sys.exit(0 if ok else 1)
