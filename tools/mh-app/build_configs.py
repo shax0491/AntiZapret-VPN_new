@@ -184,5 +184,6 @@ if __name__ == "__main__":
     ok = publish("home-config.yaml", build(tpl, NODES_ALL, False))
     # рабочий роутер без IPv6 (за Fortinet, 256 МБ): ipv6 остаётся выключенным
     work_cfg = build(tpl, [n for n in NODES_ALL if n.get("work", True)], True).replace("ipv6: true", "ipv6: false")
+    work_cfg = chr(10).join(l for l in work_cfg.split(chr(10)) if "IP-CIDR6,2000::/3" not in l)
     ok = publish("work-config.yaml", work_cfg) and ok
     sys.exit(0 if ok else 1)
