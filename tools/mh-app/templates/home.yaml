@@ -10,7 +10,7 @@ allow-lan: true
 bind-address: "*"
 mode: rule
 log-level: info
-ipv6: true
+ipv6: false
 unified-delay: true
 tcp-concurrent: true
 geodata-loader: memconservative
@@ -39,7 +39,7 @@ sniffer:
 dns:
   enable: true
   listen: 0.0.0.0:7874
-  ipv6: true
+  ipv6: false
   # redir-host: устройствам отдаются настоящие адреса (UDP, звонки, игры работают как обычно), а mihomo помнит домен
   enhanced-mode: redir-host
   # как у AntiZapret: обычные сайты - российский DNS напрямую (адреса, которые работают из РФ: они и идут напрямую),
@@ -494,5 +494,4 @@ rules:
   - GEOSITE,ru-available-only-inside,Напрямую (провайдер)
   - GEOIP,ru,Напрямую (провайдер),no-resolve
   # голые IPv6-адреса (без имени) - в туннель, а не в WAN провайдера; имена с AAAA сюда не попадают (no-resolve)
-  - IP-CIDR6,2000::/3,Авто — самый быстрый,no-resolve
   - MATCH,Остальной интернет
