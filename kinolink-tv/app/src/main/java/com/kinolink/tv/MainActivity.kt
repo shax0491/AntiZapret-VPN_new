@@ -79,6 +79,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Settings
 import androidx.media3.ui.PlayerView
 import androidx.tv.foundation.lazy.grid.TvGridCells
 import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
@@ -262,6 +268,27 @@ fun IconBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String,
             androidx.compose.material3.Icon(icon, desc, tint = if (f) Bg else Color.White, modifier = Modifier.size((size * 0.54f).dp))
         }
     }
+}
+
+/** Стеклянная панель: полупрозрачный градиент + светлая кромка, появляется с задержкой по порядку (idx). */
+@Composable
+fun Glass(idx: Int = 0, modifier: Modifier = Modifier, solid: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var vis by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(idx * 70L); vis = true }
+    val al by animateFloatAsState(if (vis) 1f else 0f, androidx.compose.animation.core.tween(450), label = "ga")
+    val off by animateDpAsState(if (vis) 0.dp else 24.dp, androidx.compose.animation.core.tween(450), label = "go")
+    Column(modifier.fillMaxWidth().offset(y = off).alpha(al).clip(RoundedCornerShape(20.dp))
+        .background(if (solid) Color(0xFF161823) else Color.Transparent)
+        .background(Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x14FFFFFF))))
+        .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(20.dp)).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+}
+
+/** Мягкое свечение за стеклом: без фона стекло на сплошном цвете не читается. */
+@Composable
+fun GlowBg(content: @Composable BoxScope.() -> Unit) {
+    Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0x5500BCD4), Color.Transparent), center = androidx.compose.ui.geometry.Offset(300f, 100f), radius = 900f))
+        .background(Brush.radialGradient(listOf(Color(0x445B3FD0), Color.Transparent), center = androidx.compose.ui.geometry.Offset(1500f, 1400f), radius = 1100f)), content = content)
 }
 
 /** Кнопка со значком и словом (карточка фильма). */
@@ -815,8 +842,11 @@ fun TorrentsScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit)
     }
     BackHandler { if (files != null) files = null else back() }
     val fl = files
-    Column(Modifier.fillMaxSize().padding(horizontal = LocalPad.current, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Торренты: ${item.title}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    GlowBg { Column(Modifier.fillMaxSize().padding(horizontal = LocalPad.current, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            IconBtn(Icons.Filled.ArrowBack, "Назад") { if (files != null) files = null else back() }
+            Text("Торренты: ${item.title}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
         if (fl == null) TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) { items(filters.indices.toList()) { Chip(filters[it], it == filter) { filter = it } } }
         if (msg.isNotEmpty()) Text(msg, color = Yellow)
         if (fl != null) {
@@ -824,7 +854,7 @@ fun TorrentsScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit)
             TvLazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(fl.indices.toList()) { i ->
                     Focusable(Modifier.fillMaxWidth(), onClick = { go(Screen.Play(PlayReq(fl, i))) }) { f ->
-                        Row(Modifier.background(if (f) Color(0xFF1F2833) else Bg2).padding(12.dp).fillMaxWidth()) {
+                        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(if (f) Color(0x6600BCD4) else Color(0x22FFFFFF)).border(1.dp, if (f) Cyan else Color(0x22FFFFFF), RoundedCornerShape(14.dp)).padding(12.dp).fillMaxWidth()) {
                             Text(fl[i].title + if (fl[i].sub.isNotBlank()) "  ·  " + fl[i].sub else "", color = Color.White, fontSize = 15.sp, maxLines = 2, modifier = Modifier.weight(1f)); Text(fl[i].overview, color = Cyan)
                         }
                     }
@@ -842,14 +872,14 @@ fun TorrentsScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit)
                         } catch (e: Exception) { "Ошибка TorrServer: ${e.message}" }
                     }
                 }) { f ->
-                    Column(Modifier.background(if (f) Color(0xFF1F2833) else Bg2).padding(12.dp).fillMaxWidth()) {
+                    Column(Modifier.clip(RoundedCornerShape(14.dp)).background(if (f) Color(0x6600BCD4) else Color(0x22FFFFFF)).border(1.dp, if (f) Cyan else Color(0x22FFFFFF), RoundedCornerShape(14.dp)).padding(12.dp).fillMaxWidth()) {
                         Text(t.title, color = Color.White, fontSize = 15.sp, maxLines = 2)
                         Text(qualityTags(t.title).joinToString(" · ") + "   %.1f ГБ   ▲%d ▼%d   %s".format(t.size / 1e9, t.seeders, t.peers, t.tracker), color = if (t.seeders > 0) Cyan else Color(0xFFFF6B6B), fontSize = 13.sp)
                     }
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable
@@ -907,6 +937,36 @@ fun TorrentTab(api: Api, onOpen: (Item) -> Unit) {
     }
 }
 
+/** Строка настройки как в Lampa: название слева, значение справа, под названием пояснение; в фокусе светлая. */
+@Composable
+fun SRow(title: String, value: String = "", descr: String = "", modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+    var f by remember { mutableStateOf(false) }
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (f) Color(0xF2FFFFFF) else Color.Transparent)
+        .onFocusChanged { f = it.isFocused }.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = if (f) Bg else Color.White, fontSize = 18.sp)
+            if (descr.isNotEmpty()) Text(descr, color = if (f) Color(0xFF444B5C) else Color(0xFF9AA0AE), fontSize = 13.sp)
+        }
+        if (value.isNotEmpty()) Text(value, color = if (f) Bg else Cyan, fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 12.dp))
+    }
+}
+
+/** Пункт левого меню настроек: значок + название. */
+@Composable
+fun SNav(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean, onFocus: () -> Unit) {
+    var f by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+        .background(if (f) Color(0xF2FFFFFF) else if (selected) Color(0x3300BCD4) else Color.Transparent)
+        .onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus() }.clickable(onClick = onFocus).padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        androidx.compose.material3.Icon(icon, label, tint = if (f) Bg else if (selected) Cyan else Color.White, modifier = Modifier.size(26.dp))
+        Text(label, color = if (f) Bg else if (selected) Cyan else Color.White, fontSize = 18.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+    }
+}
+
+class PickDlg(val title: String, val opts: List<String>, val sel: Int, val onPick: (Int) -> Unit)
+
 @Composable
 fun SettingsTab(api: Api, logout: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -916,59 +976,90 @@ fun SettingsTab(api: Api, logout: () -> Unit) {
     var lu by remember { mutableStateOf(api.lampacUid) }
     var pw by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf("") }
+    var uname by remember { mutableStateOf(api.user) }
+    var srv by remember { mutableStateOf(api.base) }
+    var ext by remember { mutableStateOf(api.externalPlayer) }
+    var ssOn by remember { mutableStateOf(api.ssOn) }
+    var ssMin by remember { mutableIntStateOf(api.ssMin) }
+    var ssTheme by remember { mutableStateOf(api.ssTheme) }
+    var tsm by remember { mutableIntStateOf(api.tsMode) }
+    var sel by remember { mutableIntStateOf(0) }
+    var dlg by remember { mutableStateOf<PickDlg?>(null) }
+    LaunchedEffect(Unit) { api.ensureUser(); uname = api.user }
     val ver = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).let { "${it.versionName} (build ${it.longVersionCode})" } }.getOrDefault("?") }
-    @Composable fun H(t: String) = Text(t, color = Cyan, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(LocalPad.current), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        H("Аккаунт")
-        var uname by remember { mutableStateOf(api.user) }
-        LaunchedEffect(Unit) { api.ensureUser(); uname = api.user }
-        Text("Jellyfin: ${uname.ifEmpty { "—" }}", color = Color.White, fontSize = 16.sp)
-        Chip("Выйти из аккаунта") { api.token = ""; api.uid = ""; logout() }
-        H("Серверы и бэкенды")
-        Text("Jellyfin: ${api.base}", color = Color(0xFFCCCCCC), fontSize = 14.sp)
-        var srv by remember { mutableStateOf(api.base) }
-        var ext by remember { mutableStateOf(api.externalPlayer) }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { api.servers.forEach { s -> Chip(if ("192.168" in s) "Дома: $s" else "Внешний: ${s.substringAfter("//")}", srv == s) { api.base = s; srv = s; msg = "Сервер сменён. Выйдите и войдите заново." } } }
-        KField(srv, { srv = it; api.base = it }, label = { Text("Адрес Jellyfin (свой сервер)") }, singleLine = true, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth())
-        H("Плеер")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Chip("Встроенный (ExoPlayer)", !ext) { api.externalPlayer = false; ext = false }
-            Chip("Внешний (VLC, MX Player)", ext) { api.externalPlayer = true; ext = true }
-        }
-        H("Заставка")
-        var ssOn by remember { mutableStateOf(api.ssOn) }
-        var ssMin by remember { mutableIntStateOf(api.ssMin) }
-        var ssTheme by remember { mutableStateOf(api.ssTheme) }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Chip("Включена", ssOn) { api.ssOn = true; ssOn = true }
-            Chip("Выключена", !ssOn) { api.ssOn = false; ssOn = false }
-        }
-        Text("Запускать после бездействия:", color = Color(0xFFCCCCCC), fontSize = 14.sp)
-        TvLazyRow(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(listOf(1, 2, 5, 10, 15, 30)) { m -> Chip("$m мин", ssMin == m) { api.ssMin = m; ssMin = m } }
-        }
-        Text("Тема заставки:", color = Color(0xFFCCCCCC), fontSize = 14.sp)
-        TvLazyRow(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(listOf("new" to "Новинки кино", "trend" to "Тренды недели", "library" to "Моя медиатека", "cartoon" to "Мультфильмы", "anime" to "Аниме", "nature" to "Природа и документальное")) { (k, n) ->
-                Chip(n, ssTheme == k) { api.ssTheme = k; ssTheme = k }
+    val themes = listOf("new" to "Новинки кино", "trend" to "Тренды недели", "library" to "Моя медиатека", "cartoon" to "Мультфильмы", "anime" to "Аниме", "nature" to "Природа и документальное")
+    val mins = listOf(1, 2, 5, 10, 15, 30)
+    val tsModes = listOf("Авто", "Только внешний", "Только дома")
+    fun srvName(x: String) = if ("192.168" in x) "Дома: $x" else "Внешний: ${x.substringAfter("//")}"
+    val nav = listOf(Icons.Filled.Person to "Аккаунт", Icons.Filled.Cloud to "Серверы", Icons.Filled.PlayCircle to "Плеер", Icons.Filled.Image to "Заставка", Icons.Filled.Download to "Онлайн и торренты", Icons.Filled.Settings to "Система")
+    BackHandler(dlg != null) { dlg = null }
+    GlowBg {
+        Row(Modifier.fillMaxSize().imePadding().padding(horizontal = LocalPad.current, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Glass(0, Modifier.width(300.dp)) {
+                nav.forEachIndexed { i, (ic, name) -> SNav(ic, name, sel == i) { sel = i } }
+            }
+            Glass(1, Modifier.weight(1f).fillMaxHeight()) {
+                androidx.compose.animation.Crossfade(sel, animationSpec = androidx.compose.animation.core.tween(220), label = "set") { sc ->
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(nav[sc].second, color = Cyan, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+                        when (sc) {
+                            0 -> {
+                                SRow("Пользователь Jellyfin", uname.ifEmpty { "—" })
+                                SRow("Выйти из аккаунта", "", "Потребуется войти заново") { api.token = ""; api.uid = ""; logout() }
+                            }
+                            1 -> {
+                                SRow("Сервер Jellyfin", srvName(srv), "Сменить адрес: выберите и войдите заново") {
+                                    dlg = PickDlg("Сервер Jellyfin", api.servers.map(::srvName), api.servers.indexOf(srv)) { k -> api.base = api.servers[k]; srv = api.servers[k]; msg = "Сервер сменён. Выйдите и войдите заново." }
+                                }
+                                KField(srv, { srv = it; api.base = it }, label = { Text("Свой адрес Jellyfin") }, singleLine = true, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth())
+                            }
+                            2 -> SRow("Плеер по умолчанию", if (ext) "Внешний" else "Встроенный", "Внешний: VLC, MX Player и т.п.") {
+                                dlg = PickDlg("Плеер", listOf("Встроенный (ExoPlayer)", "Внешний (VLC, MX Player)"), if (ext) 1 else 0) { k -> ext = k == 1; api.externalPlayer = ext }
+                            }
+                            3 -> {
+                                SRow("Заставка", if (ssOn) "Включена" else "Выключена", "Показывается при бездействии на Android TV") { ssOn = !ssOn; api.ssOn = ssOn }
+                                SRow("Запускать через", "$ssMin мин") {
+                                    dlg = PickDlg("Бездействие до заставки", mins.map { "$it мин" }, mins.indexOf(ssMin)) { k -> ssMin = mins[k]; api.ssMin = ssMin }
+                                }
+                                SRow("Тема", themes.firstOrNull { it.first == ssTheme }?.second ?: "") {
+                                    dlg = PickDlg("Тема заставки", themes.map { it.second }, themes.indexOfFirst { it.first == ssTheme }) { k -> ssTheme = themes[k].first; api.ssTheme = ssTheme }
+                                }
+                            }
+                            4 -> {
+                                KField(lu, { lu = it; api.lampacUid = it }, label = { Text("Lampac uid (Filmix и онлайн)") }, singleLine = true, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth())
+                                KField(pw, { pw = it }, label = { Text("Пароль Jellyfin для обновления uid") }, singleLine = true, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), visualTransformation = PasswordVisualTransformation())
+                                SRow("Получить uid заново") { scope.launch { msg = try { api.refreshLampac(pw); lu = api.lampacUid; pw = ""; "uid обновлён" } catch (e: Exception) { "Ошибка: ${e.message}" } } }
+                                SRow("TorrServer", tsModes[tsm], api.tsWhere()) {
+                                    dlg = PickDlg("TorrServer", tsModes, tsm) { k -> api.tsMode = k; tsm = k; ts = api.ts; tsa = api.tsAuth }
+                                }
+                                KField(ts, { ts = it; api.ts = it }, label = { Text("Адрес TorrServer") }, singleLine = true, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth())
+                                KField(tsa, { tsa = it; api.tsAuth = it }, label = { Text("TorrServer логин:пароль") }, singleLine = true, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth())
+                            }
+                            else -> {
+                                SRow("Очистить кэш", "", "Картинки и временные файлы") { runCatching { coil.Coil.imageLoader(ctx).memoryCache?.clear(); coil.Coil.imageLoader(ctx).diskCache?.clear(); ctx.cacheDir.deleteRecursively() }; msg = "Кэш очищен" }
+                                SRow("Версия приложения", ver)
+                            }
+                        }
+                        if (msg.isNotEmpty()) Text(msg, color = Yellow, modifier = Modifier.padding(16.dp))
+                    }
+                }
             }
         }
-        KField(lu, { lu = it; api.lampacUid = it }, label = { Text("Lampac uid (Filmix и онлайн)") }, singleLine = true, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            KField(pw, { pw = it }, label = { Text("Пароль Jellyfin для обновления uid") }, singleLine = true, modifier = Modifier.widthIn(max = 380.dp).weight(1f), visualTransformation = PasswordVisualTransformation())
-            Chip("Получить uid заново") { scope.launch { msg = try { api.refreshLampac(pw); lu = api.lampacUid; pw = ""; "uid обновлён" } catch (e: Exception) { "Ошибка: ${e.message}" } } }
+        // выбор значения: стеклянное окно по центру, как модальный список Lampa
+        dlg?.let { d ->
+            Box(Modifier.fillMaxSize().background(Color(0xAA000000)).clickable { dlg = null }, contentAlignment = Alignment.Center) {
+                Glass(0, Modifier.widthIn(max = 460.dp).padding(24.dp), solid = true) {
+                    Text(d.title, color = Cyan, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
+                    val fr = remember { FocusRequester() }
+                    LaunchedEffect(Unit) { delay(80); runCatching { fr.requestFocus() } }
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        d.opts.forEachIndexed { k, o ->
+                            SRow(o, if (k == d.sel) "●" else "", modifier = if (k == maxOf(d.sel, 0)) Modifier.focusRequester(fr) else Modifier) { d.onPick(k); dlg = null }
+                        }
+                    }
+                }
+            }
         }
-        var tsm by remember { mutableIntStateOf(api.tsMode) }
-        Text("TorrServer: ${api.tsWhere()}", color = Color(0xFFCCCCCC), fontSize = 14.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf("Авто", "Только внешний", "Только дома").forEachIndexed { i, n -> Chip(n, tsm == i) { api.tsMode = i; tsm = i; ts = api.ts; tsa = api.tsAuth } }
-        }
-        KField(ts, { ts = it; api.ts = it }, label = { Text("Адрес TorrServer") }, singleLine = true, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth())
-        KField(tsa, { tsa = it; api.tsAuth = it }, label = { Text("TorrServer логин:пароль") }, singleLine = true, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth())
-        H("Система")
-        Chip("Очистить кэш") { runCatching { coil.Coil.imageLoader(ctx).memoryCache?.clear(); coil.Coil.imageLoader(ctx).diskCache?.clear(); ctx.cacheDir.deleteRecursively() }; msg = "Кэш очищен" }
-        Text("Версия приложения: $ver", color = Color(0xFFCCCCCC), fontSize = 14.sp)
-        if (msg.isNotEmpty()) Text(msg, color = Yellow)
     }
 }
 
