@@ -228,8 +228,8 @@ rule-providers:
     path: ./ruleset/ru-apps.yaml
     interval: 86400
 rules:
-  # alphavps.com: Cloudflare блокирует (1020) все серверные выходы и Proton, с домашнего интернета открывается - только напрямую (03.11)
-  - DOMAIN-SUFFIX,alphavps.com,Напрямую (провайдер)
+  # alphavps.com: Cloudflare 1020 блокирует Proton/WARP - ведём через «Исключения» (чистый прямой выход DE, не домашний провайдер) (03.11)
+  - DOMAIN-SUFFIX,alphavps.com,Исключения (без Proton)
   # Домены, которые банит Proton или которым нужен один постоянный IP (RuTracker: cookie Cloudflare/сессия привязаны к IP; 03.11)
   - DOMAIN-SUFFIX,rutracker.org,Исключения (без Proton)
   - DOMAIN-SUFFIX,rutracker.net,Исключения (без Proton)
