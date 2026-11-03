@@ -156,8 +156,7 @@ def auto_switch(st):
         return
     if t - st.get("auto_since", t) < AUTO_HOLD or t - st.get("auto_rep_t", 0) < AUTO_GAP:
         return
-    flips = st.get("auto_flips", 1)
-    notify("🔀 Авто: %s → %s%s" % (short(rep), short(now), " (переключений: %d)" % flips if flips > 1 else ""))
+    notify("🔀 Авто: %s → %s" % (short(rep), short(now)))   # без счётчика: он считал и промежуточные скачки и путал ("3 переключения" при одном итоговом)
     st["auto_rep"] = now; st["auto_rep_t"] = t; st["auto_flips"] = 0
 
 
