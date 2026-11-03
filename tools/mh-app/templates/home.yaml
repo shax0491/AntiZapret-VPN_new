@@ -227,6 +227,8 @@ rule-providers:
     path: ./ruleset/ru-apps.yaml
     interval: 86400
 rules:
+  # alphavps.com: Cloudflare блокирует (1020) все серверные выходы и Proton, с домашнего интернета открывается - только напрямую (03.11)
+  - DOMAIN-SUFFIX,alphavps.com,Напрямую (провайдер)
   - DOMAIN-SUFFIX,ogs.google.com,ИИ — ChatGPT и Claude
   - DOMAIN-SUFFIX,play.google.com,ИИ — ChatGPT и Claude
   # 4pda.to напрямую у провайдера не открывается в браузере (ответ на TLS-запрос не приходит, curl проходит) - через VPN (30.10)
