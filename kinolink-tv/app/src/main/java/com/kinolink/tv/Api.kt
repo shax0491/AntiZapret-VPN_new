@@ -19,6 +19,7 @@ data class Item(
     val posTicks: Long, val runTicks: Long, val rating: Double, val overview: String,
     val torrentHash: String? = null, val torrentPoster: String? = null,
     val url: String? = null,           // готовая ссылка на поток (Filmix / онлайн через Lampac)
+    val qualities: Map<String, String> = emptyMap(),   // онлайн: качество -> ссылка (1080p, 720p...)
 )
 
 data class Stream(val index: Int, val type: String, val title: String, val codec: String, val lang: String)
@@ -26,10 +27,7 @@ data class Info(val msId: String, val psId: String, val streams: List<Stream>)
 
 /** Лестница качества как в Lampa/Jellyfin: «Авто» = Direct Play, дальше битрейты от большего к меньшему. */
 enum class Quality(val label: String, val kbps: Int, val h: Int) {
-    AUTO("Авто", 0, 0),
-    M100("100 Mbps", 100_000, 2160), M80("80 Mbps", 80_000, 2160), M60("60 Mbps", 60_000, 2160), M40("40 Mbps", 40_000, 2160),
-    M20("20 Mbps", 20_000, 1080), M15("15 Mbps", 15_000, 1080), M10("10 Mbps", 10_000, 1080), M8("8 Mbps", 8_000, 1080), M6("6 Mbps", 6_000, 1080),
-    M4("4 Mbps", 4_000, 720), M3("3 Mbps", 3_000, 720), M15b("1.5 Mbps", 1_500, 480), K720("720 kbps", 720, 360), K420("420 kbps", 420, 240)
+    AUTO("Оригинал", 0, 0), P2160("4K", 40_000, 2160), P1080("1080p", 8_000, 1080), P720("720p", 4_000, 720), P480("480p", 1_500, 480)
 }
 
 class Api(ctx: Context) {
@@ -44,13 +42,27 @@ class Api(ctx: Context) {
     var externalPlayer: Boolean get() = sp.getBoolean("extplayer", false); set(v) = sp.edit().putBoolean("extplayer", v).apply()
     var token: String get() = sp.getString("token", "")!!; set(v) = sp.edit().putString("token", v).apply()
     var uid: String get() = sp.getString("uid", "")!!; set(v) = sp.edit().putString("uid", v).apply()
-    /** TorrServer на CT112 напрямую (порт 9085, basic-auth); через Lampac /ts его авторизация не проходит. Старый адрес :9118/ts подменяем. */
-    var ts: String get() = sp.getString("ts", null)?.takeIf { !it.contains(":9118") } ?: "http://192.168.1.115:9085"; set(v) = sp.edit().putString("ts", v.trimEnd('/')).apply()
-    var tsAuth: String get() = sp.getString("tsAuth", Secrets.TS_AUTH)!!; set(v) = sp.edit().putString("tsAuth", v).apply()
+    private val LAN_TS = "http://192.168.1.115:9085"
+    /** TorrServer: дома — напрямую (быстро), снаружи — через публичный прокси Lampac /ts (логин = uid Lampac, пароль ts).
+     *  Режим: 0 авто (проверка LAN при старте), 1 только внешний, 2 только дома. Пустое значение в настройках = авто. */
+    @Volatile var tsLan = false
+    var tsMode: Int get() = sp.getInt("tsmode", 0); set(v) = sp.edit().putInt("tsmode", v).apply()
+    private val lanNow get() = when (tsMode) { 1 -> false; 2 -> true; else -> tsLan }
+    var ts: String
+        get() = sp.getString("ts", "")!!.takeIf { it.isNotBlank() && it != LAN_TS && !it.contains(":9118") } ?: if (lanNow) LAN_TS else "$lampac/ts"
+        set(v) = sp.edit().putString("ts", v.trim().trimEnd('/')).apply()
+    var tsAuth: String
+        get() = sp.getString("tsAuth", "")!!.takeIf { it.isNotBlank() && it != Secrets.TS_AUTH } ?: if (lanNow) Secrets.TS_AUTH else "$lampacUid:ts"
+        set(v) = sp.edit().putString("tsAuth", v).apply()
+    private val probeHttp = OkHttpClient.Builder().connectTimeout(1200, TimeUnit.MILLISECONDS).readTimeout(1500, TimeUnit.MILLISECONDS).build()
+    /** Дома ли мы: LAN-адрес TorrServer отвечает за ~1 с. Вызывать при старте и при возврате на главную. */
+    suspend fun probeTs() { tsLan = withContext(Dispatchers.IO) { runCatching { probeHttp.newCall(Request.Builder().url("$LAN_TS/echo").build()).execute().use { it.isSuccessful } }.getOrDefault(false) } }
+    fun tsWhere() = if (ts.startsWith(LAN_TS)) "дома (напрямую)" else if (ts.startsWith(lampac)) "через сервер (из любой сети)" else ts
     fun tsHeader() = "Basic " + android.util.Base64.encodeToString(tsAuth.toByteArray(), android.util.Base64.NO_WRAP)
     var user: String get() = sp.getString("user", "")!!; set(v) = sp.edit().putString("user", v).apply()
     val loggedIn get() = token.isNotEmpty() && uid.isNotEmpty()
 
+    fun jfHeader() = auth()
     private fun auth(withToken: Boolean = true) =
         "MediaBrowser Client=\"KinolinkTV\", Device=\"AndroidTV\", DeviceId=\"$deviceId\", Version=\"0.1\"" +
             if (withToken && token.isNotEmpty()) ", Token=\"$token\"" else ""
@@ -71,6 +83,8 @@ class Api(ctx: Context) {
 
     suspend fun login(user: String, pw: String) {
         val j = JSONObject(io { call("POST", "$base/Users/AuthenticateByName", JSONObject().put("Username", user).put("Pw", pw).toString(), false) })
+        // другой пользователь на том же устройстве: свой uid Lampac (Filmix, TorrServer-доступ), чужой не наследуем
+        if (!this.user.equals(user, ignoreCase = true) || uid != j.getJSONObject("User").getString("Id")) lampacUid = ""
         token = j.getString("AccessToken"); uid = j.getJSONObject("User").getString("Id"); this.user = user
         repeat(3) { if (lampacUid.isEmpty()) runCatching { registerLampac(user, pw) } }   // персональный uid Lampac для Filmix/онлайн
     }
@@ -170,9 +184,92 @@ class Api(ctx: Context) {
     suspend fun torrents(): List<Item> {
         val a = JSONArray(io { call("POST", "$ts/torrents", JSONObject().put("action", "list").toString(), false) })
         return (0 until a.length()).map { a.getJSONObject(it) }.map {
-            Item(it.optString("hash"), it.optString("title", it.optString("name")), "Торрент", "Torrent", "", "", null, 0, 0, 0.0, "",
+            val c = cleanTitle(it.optString("title").ifEmpty { it.optString("name") })
+            Item(it.optString("hash"), c.name, c.label().ifEmpty { "Торрент" }, "Torrent", "", "", null, 0, 0, 0.0, "",
                 it.optString("hash"), it.optString("poster").ifEmpty { null })
         }
+    }
+
+    /** Постер по названию через TMDB (прокси Lampac). */
+    suspend fun tmdbPoster(name: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = http.newCall(Request.Builder().url("$lampac/tmdb/api/3/search/multi?api_key=${Secrets.TMDB}&language=ru-RU&query=${e(name)}&uid=$lampacUid").build()).execute().use { it.body!!.string() }
+            val arr = JSONObject(body).getJSONArray("results")
+            (0 until arr.length()).map { arr.getJSONObject(it) }.firstOrNull { it.optString("poster_path").isNotEmpty() }
+                ?.let { "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid" }
+        }.getOrNull()
+    }
+
+    /** Лента TMDB как в Lampa: path - запрос вида "movie/popular" или "discover/tv?with_original_language=ko&...". */
+    suspend fun tmdbList(path: String, serial: Boolean, page: Int = 1): List<Item> = withContext(Dispatchers.IO) {
+        val sep = if ('?' in path) "&" else "?"
+        val r = http.newCall(Request.Builder().url("$lampac/tmdb/api/3/$path${sep}api_key=${Secrets.TMDB}&language=ru-RU&page=$page&uid=$lampacUid").build()).execute().use { it.body!!.string() }
+        val arr = JSONObject(r).getJSONArray("results")
+        (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optString("poster_path").isNotEmpty() }.map {
+            Item(it.optString("id"), it.optString("title").ifEmpty { it.optString("name") }, if (serial) "Сериал" else "Фильм", "Trend", "",
+                it.optString("backdrop_path").let { b -> if (b.isNotEmpty()) "$lampac/tmdb/img/t/p/w1280$b?uid=$lampacUid" else "" }, null, 0, 0,
+                it.optDouble("vote_average", 0.0), it.optString("overview"), null, "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid")
+        }
+    }
+
+    /** Данные TMDB для карточки: рейтинг, голоса, жанры, длительность, режиссёр, актёры. */
+    data class Tmdb(val rating: Double, val votes: Int, val year: String, val runtime: Int, val genres: List<String>,
+                    val cast: List<String>, val director: String, val tagline: String, val overview: String)
+
+    suspend fun tmdbInfo(title: String, serial: Boolean): Tmdb? = withContext(Dispatchers.IO) {
+        runCatching {
+            val kind = if (serial) "tv" else "movie"
+            fun get(path: String) = JSONObject(http.newCall(Request.Builder().url("$lampac/tmdb/api/3/$path${if ('?' in path) "&" else "?"}api_key=${Secrets.TMDB}&language=ru-RU&uid=$lampacUid").build()).execute().use { it.body!!.string() })
+            val id = get("search/$kind?query=${e(title)}").getJSONArray("results").getJSONObject(0).getInt("id")
+            val d = get("$kind/$id?append_to_response=credits")
+            val cr = d.optJSONObject("credits")
+            val cast = cr?.optJSONArray("cast")?.let { a -> (0 until minOf(a.length(), 6)).map { a.getJSONObject(it).optString("name") } } ?: emptyList()
+            val dir = cr?.optJSONArray("crew")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optString("job") == "Director" }?.optString("name") }
+                ?: d.optJSONArray("created_by")?.let { a -> (0 until a.length()).joinToString(", ") { a.getJSONObject(it).optString("name") } } ?: ""
+            val g = d.optJSONArray("genres")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("name") } } ?: emptyList()
+            val rt = d.optInt("runtime").takeIf { it > 0 } ?: d.optJSONArray("episode_run_time")?.optInt(0) ?: 0
+            Tmdb(d.optDouble("vote_average", 0.0), d.optInt("vote_count"), (d.optString("release_date").ifEmpty { d.optString("first_air_date") }).take(4), rt, g, cast, dir, d.optString("tagline"), d.optString("overview"))
+        }.getOrNull()
+    }
+
+    // ---- История просмотра торрентов: у каждого пользователя Jellyfin своя (ключ по uid), хранится на устройстве ----
+    private fun histKey() = "hist_$uid"
+    private fun histRead(): JSONArray = runCatching { JSONArray(sp.getString(histKey(), "[]")) }.getOrDefault(JSONArray())
+
+    /** «Продолжить просмотр» по торрентам: новые первыми, с человеческим названием, постером, сезоном/серией и позицией. */
+    fun history(): List<Item> {
+        val a = histRead()
+        return (0 until a.length()).mapNotNull { i ->
+            runCatching {
+                val o = a.getJSONObject(i); val h = o.getString("h"); val idx = o.optInt("i", 1)
+                Item("$h:$idx", o.getString("t"), o.optString("s"), "Torrent", "", "", null, o.optLong("p") * 10_000, o.optLong("d") * 10_000, 0.0, "",
+                    h, o.optString("po").ifEmpty { null }, "$ts/stream?link=$h&index=$idx&play")
+            }.getOrNull()
+        }
+    }
+
+    fun saveHistory(it: Item, posMs: Long, durMs: Long) {
+        val h = it.torrentHash ?: return
+        if (posMs < 10_000) return
+        val idx = it.id.substringAfter(':', "1").toIntOrNull() ?: 1
+        val old = histRead()
+        val out = JSONArray()
+        val finished = durMs > 0 && posMs > durMs * 0.95
+        if (!finished) out.put(JSONObject().put("h", h).put("i", idx).put("t", it.title).put("s", it.sub.takeIf { s -> s != "Торрент" } ?: "")
+            .put("po", it.torrentPoster ?: "").put("p", posMs).put("d", durMs).put("ts", System.currentTimeMillis()))
+        for (k in 0 until old.length()) { val o = old.getJSONObject(k); if (!(o.optString("h") == h && o.optInt("i", 1) == idx) && out.length() < 30) out.put(o) }
+        sp.edit().putString(histKey(), out.toString()).apply()
+    }
+
+    /** Рекомендации Jellyfin (по просмотрам пользователя). */
+    suspend fun suggestions(): List<Item> = parse(JSONObject(io {
+        call("GET", "$base/Items/Suggestions?userId=$uid&mediaType=Video&type=Movie,Series&limit=30&$fields")
+    }).optJSONArray("Items"))
+
+    /** У старых сессий имя не сохранялось: подтягиваем с сервера. */
+    suspend fun ensureUser() {
+        if (user.isNotEmpty() || !loggedIn) return
+        runCatching { user = JSONObject(io { call("GET", "$base/Users/$uid") }).optString("Name") }
     }
 
     suspend fun addMagnet(link: String) { io { call("POST", "$ts/torrents", JSONObject().put("action", "add").put("link", link).put("save_to_db", true).toString(), false) } }
@@ -281,6 +378,8 @@ class Api(ctx: Context) {
         val add = JSONObject(call("POST", "$ts/torrents", JSONObject().put("action", "add").put("link", link).put("title", title).put("save_to_db", false).toString(), false))
         val hash = add.optString("hash").ifEmpty { throw RuntimeException("TorrServer не вернул hash") }
         val vid = Regex(".*\\.(mkv|mp4|avi|m4v|mov|ts|m2ts|webm)$", RegexOption.IGNORE_CASE)
+        val head = cleanTitle(title)
+        val poster = add.optString("poster").ifEmpty { null } ?: tmdbPoster(head.name)
         repeat(40) {
             val t = JSONObject(call("POST", "$ts/torrents", JSONObject().put("action", "get").put("hash", hash).toString(), false))
             val fs = t.optJSONArray("file_stats")
@@ -288,9 +387,12 @@ class Api(ctx: Context) {
                 val files = (0 until fs.length()).map { fs.getJSONObject(it) }.filter { vid.matches(it.optString("path")) }.sortedBy { it.optString("path") }
                 if (files.isEmpty()) throw RuntimeException("в раздаче нет видеофайлов")
                 return@withContext files.map { f ->
-                    val name = f.optString("path").substringAfterLast('/')
-                    Item("$hash:${f.optInt("id")}", name.substringBeforeLast('.'), "%.1f ГБ".format(f.optLong("length") / 1e9), "Torrent", "", "", null, 0, 0, 0.0, "",
-                        url = "$ts/stream?link=$hash&index=${f.optInt("id")}&play")
+                    val fc = cleanTitle(f.optString("path"))
+                    val season = fc.season ?: head.season
+                    val lbl = if (files.size > 1) Clean("", null, season, fc.episode ?: (files.indexOf(f) + 1)).label() else head.label()
+                    // overview несёт размер файла (для списка серий); sub - «2 сезон · 5 серия» для карточки «Продолжить»
+                    Item("$hash:${f.optInt("id")}", head.name, lbl, "Torrent", "", "", null, 0, 0, 0.0, "%.1f ГБ".format(f.optLong("length") / 1e9),
+                        hash, poster, url = "$ts/stream?link=$hash&index=${f.optInt("id")}&play")
                 }
             }
             Thread.sleep(1500)

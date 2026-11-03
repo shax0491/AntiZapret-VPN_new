@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +54,7 @@ import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
 import coil.compose.AsyncImage
+import androidx.compose.foundation.shape.CircleShape
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.graphics.graphicsLayer
@@ -83,7 +85,7 @@ class PlayReq(val list: List<Item>, val start: Int, val voices: List<Pair<String
 
 fun toItems(n: Api.Node): List<Item> = n.rows.filter { it.play != null }.map { p ->
     val u = p.quality.entries.maxByOrNull { it.key.filter(Char::isDigit).toIntOrNull() ?: 0 }?.value ?: p.play!!
-    Item(u, p.title, "", "Online", "", "", null, 0, 0, 0.0, "", null, null, u)
+    Item(u, p.title, "", "Online", "", "", null, 0, 0, 0.0, "", null, null, u, p.quality)
 }
 
 sealed class Screen {
@@ -93,12 +95,14 @@ sealed class Screen {
     data class Play(val req: PlayReq) : Screen()
     data class Detail(val item: Item) : Screen()
     data class Torrents(val item: Item) : Screen()
+    data class Feed(val def: FeedDef) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        runCatching { cleanTitleSelfCheck(); android.util.Log.i("KL", "cleanTitle OK") }.onFailure { android.util.Log.e("KL", "cleanTitle FAIL: ${it.message}") }
         val api = Api(this)
         setContent { App(api) }
     }
@@ -110,6 +114,8 @@ fun App(api: Api) {
     var lastTab by remember { mutableIntStateOf(0) }
     var reload by remember { mutableIntStateOf(0) } // после просмотра обновляем «Продолжить»
     var splash by remember { mutableStateOf(true) }
+    LaunchedEffect(reload) { api.probeTs() }   // дома или снаружи: от этого зависит адрес TorrServer
+    LaunchedEffect(Unit) { api.ensureUser() }
     val cfg = androidx.compose.ui.platform.LocalConfiguration.current
     val compact = cfg.screenWidthDp < 600
     CompositionLocalProvider(LocalPad provides (if (compact) 16.dp else 48.dp), LocalCompact provides compact) {
@@ -121,13 +127,14 @@ fun App(api: Api) {
             is Screen.Login -> LoginScreen(api) { screen = Screen.Home() }
             is Screen.Home -> {
                 lastTab = s.tab
-                HomeScreen(api, s.tab, s.seed, reload, { t, sd -> screen = Screen.Home(t, sd) }, { screen = Screen.Login }, { open(api, it) { s2 -> screen = s2 } }, { screen = Screen.Play(it) })
+                HomeScreen(api, s.tab, s.seed, reload, { t, sd -> screen = Screen.Home(t, sd) }, { screen = Screen.Login }, { open(api, it) { s2 -> screen = s2 } }, { screen = Screen.Play(it) }, { screen = Screen.Feed(it) })
             }
             is Screen.Series -> {
                 BackHandler { screen = Screen.Home(lastTab) }
                 SeriesScreen(api, s.item) { screen = it }
             }
             is Screen.Detail -> DetailScreen(api, s.item, { screen = it }) { screen = Screen.Home(lastTab) }
+            is Screen.Feed -> FeedScreen(api, s.def, { open(api, it) { s2 -> screen = s2 } }) { screen = Screen.Home(lastTab) }
             is Screen.Torrents -> TorrentsScreen(api, s.item, { screen = it }) { screen = Screen.Detail(s.item) }
             is Screen.Play -> {
                 if (api.externalPlayer) ExternalLaunch(api, s.req) { reload++; screen = Screen.Home(lastTab) }
@@ -172,27 +179,78 @@ fun Chip(text: String, selected: Boolean = false, onClick: () -> Unit) {
 
 @Composable
 fun PosterCard(api: Api, item: Item, onFocus: (Item) -> Unit, onClick: (Item) -> Unit) {
-    Focusable(Modifier.width(if (LocalCompact.current) 118.dp else 150.dp).height(if (LocalCompact.current) 177.dp else 225.dp), onFocus = { onFocus(item) }, onClick = { onClick(item) }) {
-        val model = item.torrentPoster ?: api.img(item.imgId)
-        Box(Modifier.fillMaxSize().background(Bg2)) {
-            AsyncImage(model, item.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xEE000000)))).padding(8.dp)) {
-                Text(item.title, color = Color.White, fontSize = 13.sp, maxLines = 2)
+    val w = if (LocalCompact.current) 118.dp else 150.dp
+    // постер сверху, название и сезон/серия — под ним (не поверх картинки)
+    Column(Modifier.width(w)) {
+        Focusable(Modifier.fillMaxWidth().height(w * 1.5f), onFocus = { onFocus(item) }, onClick = { onClick(item) }) {
+            val model = item.torrentPoster ?: api.img(item.imgId)
+            Box(Modifier.fillMaxSize().background(Bg2)) {
+                AsyncImage(model, item.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                if (item.posTicks > 0 && item.runTicks > 0)
+                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(item.posTicks.toFloat() / item.runTicks).height(4.dp).background(Cyan))
+                if (item.rating > 0)
+                    Text("★ %.1f".format(item.rating), color = Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.TopEnd).background(Color(0x99000000)).padding(4.dp))
             }
-            if (item.posTicks > 0 && item.runTicks > 0)
-                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(item.posTicks.toFloat() / item.runTicks).height(4.dp).background(Cyan))
-            if (item.rating > 0)
-                Text("★ %.1f".format(item.rating), color = Yellow, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.TopEnd).background(Color(0x99000000)).padding(4.dp))
+        }
+        Text(item.title, color = Color.White, fontSize = 13.sp, maxLines = 2, minLines = 2, lineHeight = 16.sp, modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp))
+        val sub = if (item.type == "Episode") item.sub.substringAfter(" · ", item.sub) else item.sub
+        Text(sub, color = if (item.type == "Torrent" || item.type == "Episode") Cyan else Color(0xFF9AA0AE), fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = 2.dp))
+    }
+}
+
+/** «Продолжить просмотр»: горизонтальная карточка 16:9 - кадр, сериал, сезон/серия, таймкод, остаток и полоса прогресса. */
+@Composable
+fun ContinueCard(api: Api, c: Item, onClick: (Item) -> Unit) {
+    val w = if (LocalCompact.current) 250.dp else 320.dp
+    val ep = Regex("S(\\d+)E(\\d+)").find(c.sub)
+    val series = if (c.type == "Episode") c.sub.substringBefore(" · ").ifBlank { c.title } else c.title
+    val label = when { ep != null -> "${ep.groupValues[1]} сезон · ${ep.groupValues[2]} серия"; c.type == "Torrent" -> c.sub; else -> "" }
+    val posMs = c.posTicks / 10_000; val durMs = c.runTicks / 10_000
+    val frac = if (durMs > 0) (posMs.toFloat() / durMs).coerceIn(0f, 1f) else 0f
+    val left = if (durMs > posMs) "осталось ${(durMs - posMs) / 60_000 + 1} мин" else ""
+    Column(Modifier.width(w)) {
+        Focusable(Modifier.fillMaxWidth().height(w * 9 / 16), onClick = { onClick(c) }) {
+            Box(Modifier.fillMaxSize().background(Bg2)) {
+                val model = when (c.type) {
+                    "Torrent" -> c.torrentPoster
+                    "Episode" -> api.img(c.imgId, "Primary", 640)
+                    else -> api.img(c.backdropId.ifEmpty { c.imgId }, "Backdrop", 640)
+                }
+                AsyncImage(model, series, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(56.dp).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000)))))
+                Text("▶", color = Color.White, fontSize = 28.sp, modifier = Modifier.align(Alignment.Center).background(Color(0x66000000), CircleShape).padding(horizontal = 14.dp, vertical = 6.dp))
+                if (durMs > 0) Text("${fmtTime(posMs)} / ${fmtTime(durMs)}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 9.dp))
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(5.dp).background(Color(0x66FFFFFF)))
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(frac).height(5.dp).background(Cyan))
+            }
+        }
+        Text(series, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(top = 8.dp, start = 2.dp))
+        if (label.isNotEmpty()) Text(label, color = Cyan, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(start = 2.dp))
+        val extra = listOf(if (c.type == "Episode") c.title else "", left).filter { x -> x.isNotEmpty() }.joinToString(" · ")
+        if (extra.isNotEmpty()) Text(extra, color = Color(0xFF9AA0AE), fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(start = 2.dp, bottom = 2.dp))
+    }
+}
+
+@Composable
+fun ContinueRow(api: Api, items: List<Item>, onClick: (Item) -> Unit) {
+    if (items.isEmpty()) return
+    Column(Modifier.padding(vertical = 8.dp)) {
+        Text("Продолжить просмотр", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = LocalPad.current, bottom = 8.dp))
+        TvLazyRow(contentPadding = PaddingValues(horizontal = LocalPad.current), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(items) { ContinueCard(api, it, onClick) }
         }
     }
 }
 
 @Composable
-fun Row(title: String, api: Api, items: List<Item>, onFocus: (Item) -> Unit, onClick: (Item) -> Unit) {
+fun Row(title: String, api: Api, items: List<Item>, onFocus: (Item) -> Unit, onClick: (Item) -> Unit, onMore: (() -> Unit)? = null) {
     if (items.isEmpty()) return
     Column(Modifier.padding(vertical = 8.dp)) {
-        Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = LocalPad.current, bottom = 8.dp))
+        Row(Modifier.padding(start = LocalPad.current, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (onMore != null) Chip("Ещё ›") { onMore() }   // полный экран ленты: сетка + сортировка
+        }
         TvLazyRow(contentPadding = PaddingValues(horizontal = LocalPad.current), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(items) { PosterCard(api, it, onFocus, onClick) }
         }
@@ -255,17 +313,22 @@ fun SplashScreen(api: Api, done: () -> Unit) {
 }
 
 @Composable
-fun HomeScreen(api: Api, tab: Int, seed: String?, reload: Int, setTab: (Int, String?) -> Unit, logout: () -> Unit, onOpen: (Item) -> Unit, onPlay: (PlayReq) -> Unit = {}) {
-    val tabs = listOf("Главная", "Поиск", "Фильмы", "Сериалы", "Онлайн", "Торренты", "Избранное", "Настройки")
+fun HomeScreen(api: Api, tab: Int, seed: String?, reload: Int, setTab: (Int, String?) -> Unit, logout: () -> Unit, onOpen: (Item) -> Unit, onPlay: (PlayReq) -> Unit = {}, onFeed: (FeedDef) -> Unit = {}) {
+    // верхнее меню: 5 разделов; «Каталог» собирает Фильмы / Сериалы / Онлайн / Торренты (внутренние вкладки 2..5)
+    val menu = listOf("Главная" to 0, "Каталог" to 2, "Избранное" to 6, "Поиск" to 1, "Настройки" to 7)
+    val menuSel = if (tab in 2..5) 2 else tab
     Column(Modifier.fillMaxSize()) {
         val tabState = androidx.tv.foundation.lazy.list.rememberTvLazyListState()
-        LaunchedEffect(tab) { tabState.animateScrollToItem(tab) }
+        LaunchedEffect(menuSel) { tabState.animateScrollToItem(menu.indexOfFirst { it.second == menuSel }.coerceAtLeast(0)) }
         TvLazyRow(Modifier.fillMaxWidth().height(56.dp), state = tabState, contentPadding = PaddingValues(horizontal = LocalPad.current, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            items(tabs.indices.toList()) { Chip(tabs[it], it == tab) { setTab(it, null) } }
+            items(menu) { (name, target) -> Chip(name, target == menuSel) { setTab(target, null) } }
+        }
+        if (tab in 2..5) TvLazyRow(Modifier.fillMaxWidth().height(48.dp), contentPadding = PaddingValues(horizontal = LocalPad.current, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            items(listOf("Фильмы" to 2, "Сериалы" to 3, "Онлайн" to 4, "Торренты" to 5)) { (name, target) -> Chip(name, target == tab) { setTab(target, null) } }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
         when (tab) {
-            0 -> HomeTab(api, reload, onOpen) { q -> setTab(1, q) }
+            0 -> HomeTab(api, reload, onOpen, onFeed) { q -> setTab(1, q) }
             1 -> SearchTab(api, seed ?: "", onOpen) { url -> setTab(4, url) }
             2 -> CatalogTab(api, "Movie", onOpen)
             3 -> CatalogTab(api, "Series", onOpen)
@@ -278,61 +341,133 @@ fun HomeScreen(api: Api, tab: Int, seed: String?, reload: Int, setTab: (Int, Str
     }
 }
 
+private val TODAY: String get() = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+/** Лента TMDB: sort = pop (популярные) / date (новинки) / top (лучшие); filter - доп. условие discover (дорамы: язык ko). */
+data class FeedDef(val name: String, val serial: Boolean, val filter: String, val sort: String, val minVotes: Int)
+
+/** Ленты главной (как в Lampa). Порядок = порядок на экране. */
+private val HOME_FEEDS = listOf(
+    FeedDef("Фильмы: новинки", false, "", "date", 15), FeedDef("Фильмы: популярные", false, "", "pop", 0),
+    FeedDef("Сериалы: новинки", true, "", "date", 5), FeedDef("Сериалы: популярные", true, "", "pop", 0),
+    FeedDef("Дорамы: новые", true, "with_original_language=ko", "date", 3), FeedDef("Дорамы: популярные", true, "with_original_language=ko", "pop", 0),
+    FeedDef("Фильмы: лучшие", false, "", "top", 300), FeedDef("Сериалы: лучшие", true, "", "top", 300),
+)
+
+fun feedQuery(f: FeedDef, sort: String): String {
+    val date = if (f.serial) "first_air_date" else "primary_release_date"
+    val by = when (sort) { "date" -> "$date.desc&$date.lte=$TODAY"; "top" -> "vote_average.desc"; else -> "popularity.desc" }
+    val votes = when (sort) { "top" -> maxOf(f.minVotes, 300); "date" -> f.minVotes; else -> 0 }
+    return "discover/${if (f.serial) "tv" else "movie"}?sort_by=$by&vote_count.gte=$votes" + if (f.filter.isNotEmpty()) "&${f.filter}" else ""
+}
+
+/** Полный экран ленты: сетка с сортировкой и подгрузкой страниц («Ещё»). */
 @Composable
-fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onSearch: (String) -> Unit) {
+fun FeedScreen(api: Api, def: FeedDef, onOpen: (Item) -> Unit, back: () -> Unit) {
+    var sort by remember { mutableStateOf(def.sort) }       // pop | top | date | az
+    var items by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var page by remember { mutableIntStateOf(1) }
+    var busy by remember { mutableStateOf(false) }
+    var more by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+    fun loadPage(reset: Boolean) {
+        if (busy) return
+        scope.launch {
+            busy = true
+            val p = if (reset) 1 else page + 1
+            val l = runCatching { api.tmdbList(feedQuery(def, if (sort == "az") "pop" else sort), def.serial, p) }.getOrDefault(emptyList())
+            items = if (reset) l else (items + l).distinctBy { it.id }
+            page = p; more = l.size >= 15; busy = false
+        }
+    }
+    LaunchedEffect(sort) { busy = false; loadPage(true) }
+    BackHandler { back() }
+    val shown = if (sort == "az") items.sortedBy { it.title.lowercase() } else items
+    Column(Modifier.fillMaxSize().padding(horizontal = LocalPad.current), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Chip("← Назад") { back() }
+            Text(def.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+        TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(listOf("pop" to "Популярные", "top" to "По рейтингу", "date" to "Новые", "az" to "А–Я")) { (k, n) -> Chip(n, sort == k) { sort = k } }
+        }
+        TvLazyVerticalGrid(TvGridCells.Adaptive(if (LocalCompact.current) 118.dp else 150.dp), modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(shown) { PosterCard(api, it, {}, onOpen) }
+            if (more && shown.isNotEmpty()) item { Chip(if (busy) "Загрузка…" else "Показать ещё") { loadPage(false) } }
+        }
+        if (busy && shown.isEmpty()) Text("Загрузка…", color = Yellow)
+    }
+}
+
+@Composable
+fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> Unit, onSearch: (String) -> Unit) {
     var resume by remember { mutableStateOf<List<Item>>(emptyList()) }
     var fresh by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var tor by remember { mutableStateOf<List<Item>>(emptyList()) }
     var trends by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var movies by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var shows by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var recs by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var feed by remember { mutableStateOf<Map<String, List<Item>>>(emptyMap()) }   // ленты TMDB как в Lampa
     var hero by remember { mutableStateOf<Item?>(null) }
     var err by remember { mutableStateOf("") }
     LaunchedEffect(reload) {
         err = ""
-        try { resume = api.resume(); fresh = api.catalog("Movie,Series", "DateCreated", 30); movies = api.catalog("Movie", "PremiereDate", 30); shows = api.catalog("Series", "PremiereDate", 30) } catch (e: Exception) { err = "Jellyfin: ${e.message}" }
-        tor = runCatching { api.torrents() }.getOrDefault(emptyList()).reversed()   // последние добавленные первыми
-        trends = runCatching { api.trending() }.getOrDefault(emptyList())
-        hero = hero ?: fresh.firstOrNull() ?: resume.firstOrNull() ?: trends.firstOrNull()
+        // «Продолжить»: свои торренты пользователя (с названием, постером, серией) сразу, Jellyfin подтянется следом
+        val hist = api.history()
+        resume = hist
+        // ленты грузятся параллельно и появляются по мере готовности
+        kotlinx.coroutines.coroutineScope {
+            launch { try { resume = hist + api.resume() } catch (e: Exception) { err = "Jellyfin: ${e.message}" } }
+            launch { runCatching { fresh = api.catalog("Movie,Series", "DateCreated", 30); hero = hero ?: fresh.firstOrNull() } }
+            launch { trends = runCatching { api.trending() }.getOrDefault(emptyList()); hero = hero ?: trends.firstOrNull() }
+            launch { recs = runCatching { api.suggestions() }.getOrDefault(emptyList()) }
+            HOME_FEEDS.forEach { f -> launch { val l = runCatching { api.tmdbList(feedQuery(f, f.sort), f.serial) }.getOrDefault(emptyList()); feed = feed + (f.name to l) } }
+        }
+        hero = hero ?: resume.firstOrNull()
     }
     var q by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     TvLazyColumn(Modifier.fillMaxSize()) {
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = LocalPad.current, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                KField(q, { q = it }, { Text("Искать везде: Jellyfin, Filmix, торренты") }, modifier = Modifier.weight(1f), onGo = { if (q.isNotBlank()) onSearch(q.trim()) })
-                Chip("Найти") { if (q.isNotBlank()) onSearch(q.trim()) }
+            // верх: сменяемые баннеры новинок (библиотека Jellyfin + новые фильмы и сериалы TMDB), каждые 6 с
+            val banners = remember(fresh, feed) {
+                val a1 = fresh.take(3); val b1 = (feed["Фильмы: новинки"] ?: emptyList()).take(3); val c1 = (feed["Сериалы: новинки"] ?: emptyList()).take(3)
+                (0 until 3).flatMap { i -> listOfNotNull(a1.getOrNull(i), b1.getOrNull(i), c1.getOrNull(i)) }.filter { it.backdropId.isNotEmpty() }
             }
-        }
-        item {
-            val h = hero
-            Box(Modifier.fillMaxWidth().height(if (LocalCompact.current) 210.dp else 260.dp)) {
+            var bi by remember { mutableIntStateOf(0) }
+            LaunchedEffect(banners.size) { while (banners.size > 1) { delay(6000); bi = (bi + 1) % banners.size } }
+            val h = banners.getOrNull(bi) ?: hero
+            Box(Modifier.fillMaxWidth().height(if (LocalCompact.current) 230.dp else 300.dp)) {
                 if (h != null) {
-                    AsyncImage(h.torrentPoster ?: api.img(h.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.55f)
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Bg))))
-                    Column(Modifier.align(Alignment.BottomStart).padding(start = LocalPad.current, end = LocalPad.current, bottom = 16.dp).widthIn(max = 620.dp)) {
-                        Text(h.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text(h.sub + if (h.rating > 0) "   ★ %.1f".format(h.rating) else "", color = Yellow, fontSize = 15.sp)
-                        Text(h.overview, color = Color(0xFFCCCCCC), fontSize = 13.sp, maxLines = 3)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Chip("Смотреть", true) { onOpen(h) }
-                            if (h.type == "Movie" || h.type == "Series") {
-                                var fav by remember(h.id) { mutableStateOf(false) }
-                                LaunchedEffect(h.id) { fav = api.isFavorite(h.id) }
-                                Chip(if (fav) "★ В избранном" else "☆ В избранное") { scope.launch { runCatching { api.setFavorite(h.id, !fav); fav = !fav } } }
+                    androidx.compose.animation.Crossfade(h, animationSpec = androidx.compose.animation.core.tween(700), label = "banner") { b ->
+                        Box(Modifier.fillMaxSize()) {
+                            AsyncImage(if (b.backdropId.startsWith("http")) b.backdropId else api.img(b.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.6f)
+                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Bg))))
+                            Column(Modifier.align(Alignment.BottomStart).padding(start = LocalPad.current, end = LocalPad.current, bottom = 22.dp).widthIn(max = 620.dp)) {
+                                Text(b.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                Text(b.sub + if (b.rating > 0) "   ★ %.1f".format(b.rating) else "", color = Yellow, fontSize = 15.sp)
+                                Text(b.overview, color = Color(0xFFCCCCCC), fontSize = 13.sp, maxLines = 2)
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Chip("Смотреть", true) { onOpen(b) }
+                                    if (b.type == "Movie" || b.type == "Series") {
+                                        var fav by remember(b.id) { mutableStateOf(false) }
+                                        LaunchedEffect(b.id) { fav = api.isFavorite(b.id) }
+                                        Chip(if (fav) "★ В избранном" else "☆ В избранное") { scope.launch { runCatching { api.setFavorite(b.id, !fav); fav = !fav } } }
+                                    }
+                                }
                             }
                         }
+                    }
+                    if (banners.size > 1) Row(Modifier.align(Alignment.BottomEnd).padding(end = LocalPad.current, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        banners.indices.forEach { i -> Box(Modifier.size(if (i == bi) 9.dp else 6.dp).clip(CircleShape).background(if (i == bi) Cyan else Color(0x66FFFFFF))) }
                     }
                 }
                 if (err.isNotEmpty()) Text(err, color = Color(0xFFFF6B6B), modifier = Modifier.padding(LocalPad.current))
             }
         }
-        item { Row("Продолжить просмотр", api, resume, { hero = it }, onOpen) }
-        item { Row("Jellyfin: Новинки", api, fresh, { hero = it }, onOpen) }
-        item { Row("Фильмы: свежие релизы", api, movies, { hero = it }, onOpen) }
-        item { Row("Сериалы: свежие релизы", api, shows, { hero = it }, onOpen) }
-        item { Row("Торренты (TorrServer): активные и последние", api, tor, { hero = it }, onOpen) }
-        item { Row("Онлайн: тренды недели (Filmix и источники)", api, trends, { hero = it }, onOpen) }
+        item { ContinueRow(api, resume, onOpen) }
+        item { Row("Тренды недели", api, trends, { hero = it }, onOpen) }
+        HOME_FEEDS.forEach { f -> item { Row(f.name, api, feed[f.name] ?: emptyList(), { hero = it }, onOpen) { onFeed(f) } } }
+        item { Row("Новинки в библиотеке", api, fresh, { hero = it }, onOpen) }
+        item { Row("Рекомендации для вас", api, recs, { hero = it }, onOpen) }
     }
 }
 
@@ -366,6 +501,8 @@ fun qualityTags(t: String): List<String> {
 fun DetailScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit) {
     val jf = item.type == "Movie" || item.type == "Series"
     val serial = item.type == "Series" || item.sub == "Сериал"
+    var tm by remember(item.id) { mutableStateOf<Api.Tmdb?>(null) }
+    LaunchedEffect(item.id) { tm = api.tmdbInfo(item.title, serial) }
     var balancers by remember { mutableStateOf(listOf("Filmix" to "/lite/filmix")) }
     LaunchedEffect(Unit) { balancers = api.balancers() }
     BackHandler { back() }
@@ -373,8 +510,18 @@ fun DetailScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit) {
         AsyncImage(item.torrentPoster ?: api.img(item.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.3f)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(LocalPad.current, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.title, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-            Text(item.sub + if (item.rating > 0) "   ★ %.1f".format(item.rating) else "", color = Yellow, fontSize = 15.sp)
-            Text(item.overview, color = Color(0xFFCCCCCC), fontSize = 14.sp, maxLines = 6)
+            val t = tm
+            val rating = t?.rating?.takeIf { it > 0 } ?: item.rating
+            val meta = listOfNotNull(t?.year?.takeIf { it.isNotEmpty() } ?: item.sub.takeIf { it.isNotBlank() },
+                t?.runtime?.takeIf { it > 0 }?.let { "$it мин" }, t?.genres?.take(3)?.joinToString(", ")?.takeIf { it.isNotEmpty() }).joinToString("  ·  ")
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (rating > 0) Text("★ %.1f".format(rating) + (t?.votes?.takeIf { it > 0 }?.let { "  TMDB · $it" } ?: ""), color = Yellow, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(meta, color = Color(0xFFB8BECC), fontSize = 15.sp)
+            }
+            if (!t?.tagline.isNullOrBlank()) Text("«${t!!.tagline}»", color = Cyan, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(item.overview.ifBlank { t?.overview ?: "" }, color = Color(0xFFCCCCCC), fontSize = 14.sp, maxLines = 6)
+            if (t != null && t.director.isNotBlank()) Text("Режиссёр: ${t.director}", color = Color(0xFF9AA0AE), fontSize = 13.sp)
+            if (t != null && t.cast.isNotEmpty()) Text("В ролях: ${t.cast.joinToString(", ")}", color = Color(0xFF9AA0AE), fontSize = 13.sp, maxLines = 2)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (jf) Chip("▶ Смотреть (Jellyfin)", true) { if (item.type == "Series") go(Screen.Series(item)) else go(Screen.Play(PlayReq(listOf(item), 0))) }
                 Chip("Торренты") { go(Screen.Torrents(item)) }
@@ -413,7 +560,7 @@ fun TorrentsScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit)
                 items(fl.indices.toList()) { i ->
                     Focusable(Modifier.fillMaxWidth(), onClick = { go(Screen.Play(PlayReq(fl, i))) }) { f ->
                         Row(Modifier.background(if (f) Color(0xFF1F2833) else Bg2).padding(12.dp).fillMaxWidth()) {
-                            Text(fl[i].title, color = Color.White, fontSize = 15.sp, maxLines = 2, modifier = Modifier.weight(1f)); Text(fl[i].sub, color = Cyan)
+                            Text(fl[i].title + if (fl[i].sub.isNotBlank()) "  ·  " + fl[i].sub else "", color = Color.White, fontSize = 15.sp, maxLines = 2, modifier = Modifier.weight(1f)); Text(fl[i].overview, color = Cyan)
                         }
                     }
                 }
@@ -508,7 +655,9 @@ fun SettingsTab(api: Api, logout: () -> Unit) {
     @Composable fun H(t: String) = Text(t, color = Cyan, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(LocalPad.current), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         H("Аккаунт")
-        Text("Jellyfin: ${api.user.ifEmpty { "—" }}", color = Color.White, fontSize = 16.sp)
+        var uname by remember { mutableStateOf(api.user) }
+        LaunchedEffect(Unit) { api.ensureUser(); uname = api.user }
+        Text("Jellyfin: ${uname.ifEmpty { "—" }}", color = Color.White, fontSize = 16.sp)
         Chip("Выйти из аккаунта") { api.token = ""; api.uid = ""; logout() }
         H("Серверы и бэкенды")
         Text("Jellyfin: ${api.base}", color = Color(0xFFCCCCCC), fontSize = 14.sp)
@@ -525,6 +674,11 @@ fun SettingsTab(api: Api, logout: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             KField(pw, { pw = it }, label = { Text("Пароль Jellyfin для обновления uid") }, singleLine = true, modifier = Modifier.widthIn(max = 380.dp).weight(1f), visualTransformation = PasswordVisualTransformation())
             Chip("Получить uid заново") { scope.launch { msg = try { api.refreshLampac(pw); lu = api.lampacUid; pw = ""; "uid обновлён" } catch (e: Exception) { "Ошибка: ${e.message}" } } }
+        }
+        var tsm by remember { mutableIntStateOf(api.tsMode) }
+        Text("TorrServer: ${api.tsWhere()}", color = Color(0xFFCCCCCC), fontSize = 14.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf("Авто", "Только внешний", "Только дома").forEachIndexed { i, n -> Chip(n, tsm == i) { api.tsMode = i; tsm = i; ts = api.ts; tsa = api.tsAuth } }
         }
         KField(ts, { ts = it; api.ts = it }, label = { Text("Адрес TorrServer") }, singleLine = true, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth())
         KField(tsa, { tsa = it; api.tsAuth = it }, label = { Text("TorrServer логин:пароль") }, singleLine = true, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth())
@@ -567,11 +721,27 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
     val scope = rememberCoroutineScope()
     val player = remember {
         // TorrServer требует basic-auth и на потоке: добавляем заголовок только для его адреса
-        val ds = androidx.media3.datasource.ResolvingDataSource.Factory(androidx.media3.datasource.DefaultHttpDataSource.Factory()) { spec ->
-            if (spec.uri.toString().startsWith(api.ts)) spec.withAdditionalHeaders(mapOf("Authorization" to api.tsHeader())) else spec
+        // таймауты 8 с по умолчанию рвут холодный старт торрента (поиск пиров ~10-15 с) и медленную мобильную сеть
+        val http = androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(20_000).setReadTimeoutMs(45_000).setAllowCrossProtocolRedirects(true)
+        val ds = androidx.media3.datasource.ResolvingDataSource.Factory(http) { spec ->
+            if (spec.uri.toString().startsWith(api.ts)) spec.withAdditionalHeaders(mapOf("Authorization" to api.tsHeader()))
+            else if (spec.uri.toString().startsWith(api.base)) spec.withAdditionalHeaders(mapOf("Authorization" to api.jfHeader())) else spec
         }
-        ExoPlayer.Builder(ctx).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ds)).build()
+        // буфер побольше: мобильный интернет и внешний канал качаются рывками
+        val lc = androidx.media3.exoplayer.DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 120_000, 2_500, 5_000).build()
+        ExoPlayer.Builder(ctx).setLoadControl(lc).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ds)).build()
     }
+    val act = remember { var c = ctx; while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext; c as? android.app.Activity }
+    val am = remember { ctx.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
+    var hud by remember { mutableStateOf("") }
+    var hudUntil by remember { mutableStateOf(0L) }
+    fun hudShow(t: String) { hud = t; hudUntil = System.currentTimeMillis() + 900 }
+    var sleepAt by remember { mutableStateOf(0L) }            // 0 = таймер выключен
+    var sleepEnd by remember { mutableStateOf(false) }        // «до конца серии»
+    var onlineQ by remember { mutableStateOf<String?>(null) }   // выбранное качество онлайн-потока
+    var bright by remember { mutableFloatStateOf(-1f) }       // яркость плеера: -1 = авто (системная)
+    fun setBright(b: Float) { bright = b; act?.window?.let { w -> val lp = w.attributes; lp.screenBrightness = b; w.attributes = lp } }
+    var fit by remember { mutableIntStateOf(0) }              // масштаб: 0 по размеру, 1 заполнить с обрезкой, 2 растянуть
     var idx by remember { mutableIntStateOf(req.start) }
     var q by remember { mutableStateOf(Quality.AUTO) }
     var audioIdx by remember { mutableStateOf<Int?>(null) }
@@ -594,9 +764,11 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
         if (ps.isNotEmpty() && !switchOnly) { /* предыдущий PlaySessionId чистится ниже */ }
         val old = ps
         if (item.url != null) {
-            player.setMediaItem(MediaItem.fromUri(item.url), 0)
+            // адрес торрента пересобираем: дома/снаружи он разный, а в истории мог сохраниться старый
+            val u = if (item.type == "Torrent" && item.torrentHash != null) "${api.ts}/stream?link=${item.torrentHash}&index=${item.id.substringAfter(':', "1")}&play" else (onlineQ?.let { item.qualities[it] } ?: item.url)
+            player.setMediaItem(MediaItem.fromUri(u), startMs)
         } else if (item.type == "Torrent") {
-            player.setMediaItem(MediaItem.fromUri(api.torrentUrl(item.torrentHash!!)), 0)
+            player.setMediaItem(MediaItem.fromUri(api.torrentUrl(item.torrentHash!!)), startMs)
         } else {
             val inf = if (info != null && infoFor == item.id) info!! else api.info(item.id).also { info = it; infoFor = item.id }
             val (u, nps) = api.url(item.id, inf, q, audioIdx)
@@ -617,16 +789,29 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) scope.launch {
                     info?.let { api.reportStop(cur.id, it, ps, cur.runTicks / 10_000) }
+                    if (cur.type == "Torrent") api.saveHistory(cur, player.duration, player.duration)   // досмотрено: убрать из «Продолжить»
+                    if (sleepEnd) { exit(); return@launch }
                     if (!req.movieVoices && idx + 1 < list.size) { idx++; info = null; audioIdx = null; load(0) } else exit()
                 }
             }
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) { err = "Ошибка воспроизведения: ${error.errorCodeName}" }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val c = error.cause
+                err = if (c is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
+                    "Ошибка сервера ${c.responseCode}: ${String(c.responseBody).take(160).ifBlank { "нет доступа" }}"
+                else "Ошибка воспроизведения: ${error.errorCodeName}"
+                android.util.Log.e("KL", "player error: $err uri=${(c as? androidx.media3.datasource.HttpDataSource.HttpDataSourceException)?.dataSpec?.uri?.toString()?.replace(Regex("api_key=[0-9a-f]+"), "api_key=*")}", error)
+            }
         }
         player.addListener(l)
-        scope.launch { runCatching { load(if (cur.posTicks > 0 && cur.runTicks - cur.posTicks > 600_000_000L) cur.posTicks / 10_000 else 0) }.onFailure { err = "Ошибка: ${it.message}" } }
+        scope.launch { runCatching { load(if (cur.posTicks > 0 && (cur.runTicks == 0L || cur.runTicks - cur.posTicks > 600_000_000L)) cur.posTicks / 10_000 else 0) }.onFailure { err = "Ошибка: ${it.message}" } }
+        val brightness0 = act?.window?.attributes?.screenBrightness
+        act?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR   // поворот по датчику, плеер не перезапускается
         onDispose {
+            act?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             player.removeListener(l)
+            act?.window?.let { w -> val lp = w.attributes; lp.screenBrightness = brightness0 ?: -1f; w.attributes = lp }
             val i = info; val p = ps; val pos = player.currentPosition
+            list[idx].let { c -> if (c.type == "Torrent") api.saveHistory(c, pos, player.duration.coerceAtLeast(0)) }
             player.release()
             // отчёт о прогрессе и остановка ffmpeg после выхода, вне UI-скоупа
             kotlinx.coroutines.GlobalScope.launch {
@@ -634,7 +819,16 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
             }
         }
     }
-    LaunchedEffect(Unit) { while (true) { delay(500); tick++; if (tick % 20 == 0) info?.let { api.reportProgress(cur.id, it, ps, player.currentPosition) } } }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500); tick++
+            if (tick % 20 == 0) {
+                info?.let { api.reportProgress(cur.id, it, ps, player.currentPosition) }
+                if (cur.type == "Torrent") api.saveHistory(cur, player.currentPosition, player.duration.coerceAtLeast(0))   // «Продолжить» не теряется при обрыве
+            }
+            if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { sleepAt = 0; player.pause(); exit() }   // слип-таймер
+        }
+    }
     LaunchedEffect(menu) { if (menu == null) runCatching { root.requestFocus() } }
     BackHandler { if (menu != null) menu = null else exit() }
 
@@ -653,6 +847,32 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
     Box(
         Modifier.fillMaxSize().background(Color.Black).focusRequester(root).focusable()
             .pointerInput(Unit) { detectTapGestures { if (menu == null) { if (System.currentTimeMillis() < uiUntil) uiUntil = 0 else poke() } } }
+            // жесты: вертикально слева — яркость, справа — громкость; горизонтально — перемотка (применяется при отпускании)
+            .pointerInput(Unit) {
+                var mode = 0; var sx = 0f; var dx = 0f; var dy = 0f; var start = 0L; var target = 0L; var v0 = 0; var b0 = 0.5f
+                detectDragGestures(
+                    onDragStart = { o -> sx = o.x; dx = 0f; dy = 0f; mode = 0; start = player.currentPosition; target = start },
+                    onDragEnd = { if (mode == 3) player.seekTo(target); mode = 0 },
+                    onDragCancel = { mode = 0 },
+                ) { _, d ->
+                    if (menu != null) return@detectDragGestures
+                    dx += d.x; dy += d.y
+                    if (mode == 0 && (kotlin.math.abs(dx) > 30 || kotlin.math.abs(dy) > 30)) {
+                        mode = if (kotlin.math.abs(dx) > kotlin.math.abs(dy)) 3 else if (sx < size.width / 2) 1 else 2
+                        v0 = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        b0 = bright.takeIf { it >= 0 } ?: (android.provider.Settings.System.getInt(ctx.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS, 128) / 255f)
+                    }
+                    when (mode) {
+                        1 -> { val b = (b0 - dy / size.height * 1.4f).coerceIn(0.02f, 1f)
+                            setBright(b); hudShow("Яркость ${(b * 100).toInt()}%") }
+                        2 -> { val mx = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val v = (v0 - dy / size.height * 1.4f * mx).let { Math.round(it) }.coerceIn(0, mx)
+                            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, v, 0); hudShow("Громкость ${v * 100 / mx}%") }
+                        3 -> { val dur0 = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                            target = (start + dx / size.width * 120_000).toLong().coerceIn(0, dur0); hudShow((if (target >= start) "▶▶ " else "◀◀ ") + fmtTime(target)) }
+                    }
+                }
+            }
             .onPreviewKeyEvent { ev ->
                 if (menu != null || ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 poke()
@@ -666,9 +886,12 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                 }
             }
     ) {
-        AndroidView({ PlayerView(it).apply { useController = false; this.player = player; keepScreenOn = true } }, Modifier.fillMaxSize())
+        AndroidView({ (android.view.LayoutInflater.from(it).inflate(R.layout.kl_player_view, null) as PlayerView).apply { this.player = player; keepScreenOn = true } }, Modifier.fillMaxSize(),
+            update = { it.resizeMode = when (fit) { 1 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM; 2 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT } })
         val dur = player.duration.takeIf { it > 0 } ?: 1L
         key(tick) {
+            if (System.currentTimeMillis() < hudUntil) Text(hud, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center).background(Color(0x99000000), RoundedCornerShape(12.dp)).padding(horizontal = 22.dp, vertical = 12.dp))
             val pos = player.currentPosition
             val shown = menu == null && (!player.isPlaying || System.currentTimeMillis() < uiUntil)
             if (!shown) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth((pos.toFloat() / dur).coerceIn(0f, 1f)).height(3.dp).background(Cyan))
@@ -705,14 +928,24 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
         }
         if (err.isNotEmpty()) Text(err, color = Color(0xFFFF6B6B), fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
         menu?.let { m -> PlayerMenu(m, player, q, info, cur.url != null, voiceEntries, { menu = it }, { nq -> q = nq; menu = null; scope.launch { load(player.currentPosition, true) } },
-            { a -> audioIdx = a; menu = null; scope.launch { load(player.currentPosition, true) } }) }
+            { a -> audioIdx = a; menu = null; scope.launch { load(player.currentPosition, true) } },
+            listOf("По размеру", "Заполнить", "Растянуть")[fit], { f -> fit = f; menu = null; hudShow("Масштаб: " + listOf("по размеру", "заполнить", "растянуть")[f]) },
+            if (bright < 0) "Авто" else "${(bright * 100).toInt()}%", { b -> menu = null; setBright(b); hudShow(if (b < 0) "Яркость: авто" else "Яркость ${(b * 100).toInt()}%") },
+            if (sleepEnd) "до конца серии" else if (sleepAt > 0) "ещё ${((sleepAt - System.currentTimeMillis()) / 60_000 + 1)} мин" else "выкл",
+            { m -> menu = null; sleepEnd = m == -1; sleepAt = if (m > 0) System.currentTimeMillis() + m * 60_000L else 0L
+                hudShow(if (m == 0) "Таймер сна выключен" else if (m == -1) "Сон: после этой серии" else "Сон через $m мин") },
+            cur.qualities.keys.sortedByDescending { k -> k.filter(Char::isDigit).toIntOrNull() ?: 0 },
+            onlineQ?.takeIf { k -> k in cur.qualities } ?: cur.qualities.entries.firstOrNull { e -> e.value == cur.url }?.key ?: "",
+            { l -> menu = null; onlineQ = l; hudShow("Качество: $l"); scope.launch { load(player.currentPosition, true) } }) }
     }
 }
 
 private var infoFor: String = ""
 
 @Composable
-fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online: Boolean, voiceNames: List<Pair<String, () -> Unit>>, setMenu: (String?) -> Unit, pickQuality: (Quality) -> Unit, pickAudio: (Int) -> Unit) {
+fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online: Boolean, voiceNames: List<Pair<String, () -> Unit>>, setMenu: (String?) -> Unit, pickQuality: (Quality) -> Unit, pickAudio: (Int) -> Unit,
+               scaleLabel: String, pickScale: (Int) -> Unit, brightLabel: String, pickBright: (Float) -> Unit, sleepLabel: String, pickSleep: (Int) -> Unit,
+               onlineQs: List<String>, onlineQLabel: String, pickOnlineQ: (String) -> Unit) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(menu) { delay(100); runCatching { fr.requestFocus() } }
     val entries = mutableListOf<Pair<String, () -> Unit>>()
@@ -724,9 +957,29 @@ fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online:
             entries += "Аудиодорожки" to { setMenu("audio") }
             entries += "Субтитры" to { setMenu("subs") }
             if (!online) entries += "Качество: ${q.label}" to { setMenu("quality") }
+            else if (onlineQs.size > 1) entries += "Качество: $onlineQLabel" to { setMenu("quality") }
+            entries += "Масштаб: $scaleLabel" to { setMenu("scale") }
+            entries += "Яркость: $brightLabel" to { setMenu("bright") }
+            entries += "Таймер сна: $sleepLabel" to { setMenu("sleep") }
+        }
+        "scale" -> { title = "Масштаб видео"; listOf("По размеру", "Заполнить", "Растянуть").forEachIndexed { i, n -> entries += (if (n == scaleLabel) "● " else "") + n to { pickScale(i) } } }
+        "bright" -> {
+            title = "Яркость"
+            entries += (if (brightLabel == "Авто") "● " else "") + "Авто" to { pickBright(-1f) }
+            listOf(20, 40, 60, 80, 100).forEach { p -> entries += (if (brightLabel == "$p%") "● " else "") + "$p%" to { pickBright(p / 100f) } }
+        }
+        "sleep" -> {
+            title = "Таймер сна"
+            entries += "Выключить" to { pickSleep(0) }
+            listOf(15, 30, 45, 60, 90).forEach { m -> entries += "Через $m мин" to { pickSleep(m) } }
+            entries += "После этой серии" to { pickSleep(-1) }
         }
         "voice" -> { title = "Озвучка / перевод"; voiceNames.forEach { entries += it } }
-        "quality" -> { title = "Качество"; Quality.values().forEach { entries += (if (it == q) "● " else "") + it.label to { pickQuality(it) } } }
+        "quality" -> {
+            title = "Качество"
+            if (online) onlineQs.forEach { l -> entries += (if (l == onlineQLabel) "● " else "") + l to { pickOnlineQ(l) } }
+            else Quality.values().forEach { entries += (if (it == q) "● " else "") + it.label to { pickQuality(it) } }
+        }
         "audio" -> {
             title = "Аудиодорожки"
             if (q == Quality.AUTO) {
