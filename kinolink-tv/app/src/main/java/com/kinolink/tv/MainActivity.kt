@@ -14,6 +14,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +48,25 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Replay30
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Forward30
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.BrightnessMedium
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.media3.ui.PlayerView
 import androidx.tv.foundation.lazy.grid.TvGridCells
 import androidx.tv.foundation.lazy.grid.TvLazyVerticalGrid
@@ -177,6 +198,47 @@ fun Chip(text: String, selected: Boolean = false, onClick: () -> Unit) {
     }
 }
 
+/** Кнопка панели плеера: значок + (необязательно) подпись. */
+@Composable
+fun CtrlBtn(glyph: String, label: String = "", big: Boolean = false, onClick: () -> Unit) {
+    Focusable(Modifier.height(44.dp), 22, onClick = onClick) { f ->
+        Row(Modifier.background(if (f) Cyan else Color(0x99000000)).border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(22.dp)).padding(horizontal = 18.dp).fillMaxHeight(),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (glyph.isNotEmpty()) Text(glyph, color = if (f) Bg else Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            if (label.isNotEmpty()) Text(label, color = if (f) Bg else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+/** Круглая кнопка-значок панели плеера; подпись появляется при фокусе (пульт) как подсказка. */
+@Composable
+fun IconBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, hint: (String) -> Unit = {}, onClick: () -> Unit) {
+    Focusable(Modifier.size(52.dp), 26, onFocus = { hint(desc) }, onClick = onClick) { f ->
+        Box(Modifier.fillMaxSize().background(if (f) Cyan else Color(0x99000000)).border(1.dp, Color(0x33FFFFFF), CircleShape), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(icon, desc, tint = if (f) Bg else Color.White, modifier = Modifier.size(28.dp))
+        }
+    }
+}
+
+/** Большая круглая кнопка Play/Pause: фигуры рисуются, без шрифтовых значков. */
+@Composable
+fun PlayBtn(playing: Boolean, onClick: () -> Unit) {
+    Focusable(Modifier.size(72.dp), 36, onClick = onClick) { f ->
+        Box(Modifier.fillMaxSize().background(if (f) Cyan else Color.White), contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.Canvas(Modifier.size(30.dp)) {
+                val c = Bg
+                if (playing) {
+                    drawRect(c, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.12f, 0f), size = androidx.compose.ui.geometry.Size(size.width * 0.27f, size.height))
+                    drawRect(c, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.61f, 0f), size = androidx.compose.ui.geometry.Size(size.width * 0.27f, size.height))
+                } else {
+                    val path = androidx.compose.ui.graphics.Path().apply { moveTo(size.width * 0.18f, 0f); lineTo(size.width, size.height / 2); lineTo(size.width * 0.18f, size.height); close() }
+                    drawPath(path, c)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun PosterCard(api: Api, item: Item, onFocus: (Item) -> Unit, onClick: (Item) -> Unit) {
     val w = if (LocalCompact.current) 118.dp else 150.dp
@@ -234,7 +296,14 @@ fun ContinueCard(api: Api, c: Item, onClick: (Item) -> Unit) {
 
 @Composable
 fun ContinueRow(api: Api, items: List<Item>, onClick: (Item) -> Unit) {
-    if (items.isEmpty()) return
+    if (items.isEmpty()) {
+        // Jellyfin убирает из «Продолжить» просмотренное больше 90 %, поэтому пустой ряд оставляем видимым с подсказкой
+        Column(Modifier.padding(vertical = 8.dp)) {
+            Text("Продолжить просмотр", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = LocalPad.current, bottom = 6.dp))
+            Text("Начатых просмотров пока нет — здесь появится то, что вы не досмотрели", color = Color(0xFF9AA0AE), fontSize = 14.sp, modifier = Modifier.padding(start = LocalPad.current, bottom = 8.dp))
+        }
+        return
+    }
     Column(Modifier.padding(vertical = 8.dp)) {
         Text("Продолжить просмотр", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = LocalPad.current, bottom = 8.dp))
         TvLazyRow(contentPadding = PaddingValues(horizontal = LocalPad.current), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -314,7 +383,7 @@ fun SplashScreen(api: Api, done: () -> Unit) {
 
 @Composable
 fun HomeScreen(api: Api, tab: Int, seed: String?, reload: Int, setTab: (Int, String?) -> Unit, logout: () -> Unit, onOpen: (Item) -> Unit, onPlay: (PlayReq) -> Unit = {}, onFeed: (FeedDef) -> Unit = {}) {
-    // верхнее меню: 5 разделов; «Каталог» собирает Фильмы / Сериалы / Онлайн / Торренты (внутренние вкладки 2..5)
+    // верхнее меню: 5 разделов; онлайн и торренты ищутся из карточки фильма (как в Lampa)
     val menu = listOf("Главная" to 0, "Каталог" to 2, "Избранное" to 6, "Поиск" to 1, "Настройки" to 7)
     val menuSel = if (tab in 2..5) 2 else tab
     Column(Modifier.fillMaxSize()) {
@@ -323,14 +392,11 @@ fun HomeScreen(api: Api, tab: Int, seed: String?, reload: Int, setTab: (Int, Str
         TvLazyRow(Modifier.fillMaxWidth().height(56.dp), state = tabState, contentPadding = PaddingValues(horizontal = LocalPad.current, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             items(menu) { (name, target) -> Chip(name, target == menuSel) { setTab(target, null) } }
         }
-        if (tab in 2..5) TvLazyRow(Modifier.fillMaxWidth().height(48.dp), contentPadding = PaddingValues(horizontal = LocalPad.current, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            items(listOf("Фильмы" to 2, "Сериалы" to 3, "Онлайн" to 4, "Торренты" to 5)) { (name, target) -> Chip(name, target == tab) { setTab(target, null) } }
-        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
         when (tab) {
             0 -> HomeTab(api, reload, onOpen, onFeed) { q -> setTab(1, q) }
             1 -> SearchTab(api, seed ?: "", onOpen) { url -> setTab(4, url) }
-            2 -> CatalogTab(api, "Movie", onOpen)
+            2 -> CatalogTab(api, "Movie,Series", onOpen)
             3 -> CatalogTab(api, "Series", onOpen)
             4 -> OnlineTab(api, seed, onPlay)
             5 -> TorrentTab(api, onOpen)
@@ -347,11 +413,13 @@ private val TODAY: String get() = java.text.SimpleDateFormat("yyyy-MM-dd", java.
 data class FeedDef(val name: String, val serial: Boolean, val filter: String, val sort: String, val minVotes: Int)
 
 /** Ленты главной (как в Lampa). Порядок = порядок на экране. */
-private val HOME_FEEDS = listOf(
-    FeedDef("Фильмы: новинки", false, "", "date", 15), FeedDef("Фильмы: популярные", false, "", "pop", 0),
-    FeedDef("Сериалы: новинки", true, "", "date", 5), FeedDef("Сериалы: популярные", true, "", "pop", 0),
-    FeedDef("Дорамы: новые", true, "with_original_language=ko", "date", 3), FeedDef("Дорамы: популярные", true, "with_original_language=ko", "pop", 0),
-    FeedDef("Фильмы: лучшие", false, "", "top", 300), FeedDef("Сериалы: лучшие", true, "", "top", 300),
+private val WEEK_AGO: String get() = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(System.currentTimeMillis() - 7 * 86_400_000L))
+private val WEEK_AHEAD: String get() = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(System.currentTimeMillis() + 7 * 86_400_000L))
+private val HOME_FEEDS: List<FeedDef> get() = listOf(
+    FeedDef("Дорамы Кореи", true, "with_original_language=ko", "pop", 0),
+    FeedDef("Выходы эпизодов", true, "air_date.gte=$WEEK_AGO&air_date.lte=$WEEK_AHEAD", "pop", 0),
+    FeedDef("Фильмы: новинки", false, "", "date", 15), FeedDef("Фильмы: популярное", false, "", "pop", 0),
+    FeedDef("Сериалы: новинки", true, "", "date", 5), FeedDef("Сериалы: популярное", true, "", "pop", 0),
 )
 
 fun feedQuery(f: FeedDef, sort: String): String {
@@ -402,9 +470,9 @@ fun FeedScreen(api: Api, def: FeedDef, onOpen: (Item) -> Unit, back: () -> Unit)
 @Composable
 fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> Unit, onSearch: (String) -> Unit) {
     var resume by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var fresh by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var libMovies by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var libSeries by remember { mutableStateOf<List<Item>>(emptyList()) }
     var trends by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var recs by remember { mutableStateOf<List<Item>>(emptyList()) }
     var feed by remember { mutableStateOf<Map<String, List<Item>>>(emptyMap()) }   // ленты TMDB как в Lampa
     var hero by remember { mutableStateOf<Item?>(null) }
     var err by remember { mutableStateOf("") }
@@ -416,9 +484,9 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
         // ленты грузятся параллельно и появляются по мере готовности
         kotlinx.coroutines.coroutineScope {
             launch { try { resume = hist + api.resume() } catch (e: Exception) { err = "Jellyfin: ${e.message}" } }
-            launch { runCatching { fresh = api.catalog("Movie,Series", "DateCreated", 30); hero = hero ?: fresh.firstOrNull() } }
+            launch { runCatching { libMovies = api.catalog("Movie", "DateCreated", 30); hero = hero ?: libMovies.firstOrNull() } }
+            launch { runCatching { libSeries = api.catalog("Series", "DateCreated", 30) } }
             launch { trends = runCatching { api.trending() }.getOrDefault(emptyList()); hero = hero ?: trends.firstOrNull() }
-            launch { recs = runCatching { api.suggestions() }.getOrDefault(emptyList()) }
             HOME_FEEDS.forEach { f -> launch { val l = runCatching { api.tmdbList(feedQuery(f, f.sort), f.serial) }.getOrDefault(emptyList()); feed = feed + (f.name to l) } }
         }
         hero = hero ?: resume.firstOrNull()
@@ -428,18 +496,18 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
     TvLazyColumn(Modifier.fillMaxSize()) {
         item {
             // верх: сменяемые баннеры новинок (библиотека Jellyfin + новые фильмы и сериалы TMDB), каждые 6 с
-            val banners = remember(fresh, feed) {
-                val a1 = fresh.take(3); val b1 = (feed["Фильмы: новинки"] ?: emptyList()).take(3); val c1 = (feed["Сериалы: новинки"] ?: emptyList()).take(3)
+            val banners = remember(libMovies, libSeries, feed) {
+                val a1 = libMovies.take(2) + libSeries.take(1); val b1 = (feed["Фильмы: новинки"] ?: emptyList()).take(3); val c1 = (feed["Сериалы: новинки"] ?: emptyList()).take(3)
                 (0 until 3).flatMap { i -> listOfNotNull(a1.getOrNull(i), b1.getOrNull(i), c1.getOrNull(i)) }.filter { it.backdropId.isNotEmpty() }
             }
             var bi by remember { mutableIntStateOf(0) }
             LaunchedEffect(banners.size) { while (banners.size > 1) { delay(6000); bi = (bi + 1) % banners.size } }
             val h = banners.getOrNull(bi) ?: hero
-            Box(Modifier.fillMaxWidth().height(if (LocalCompact.current) 230.dp else 300.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).heightIn(max = 460.dp)) {
                 if (h != null) {
                     androidx.compose.animation.Crossfade(h, animationSpec = androidx.compose.animation.core.tween(700), label = "banner") { b ->
                         Box(Modifier.fillMaxSize()) {
-                            AsyncImage(if (b.backdropId.startsWith("http")) b.backdropId else api.img(b.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.6f)
+                            AsyncImage(if (b.backdropId.startsWith("http")) b.backdropId else api.img(b.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, alpha = 0.75f)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Bg))))
                             Column(Modifier.align(Alignment.BottomStart).padding(start = LocalPad.current, end = LocalPad.current, bottom = 22.dp).widthIn(max = 620.dp)) {
                                 Text(b.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -464,10 +532,10 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
             }
         }
         item { ContinueRow(api, resume, onOpen) }
-        item { Row("Тренды недели", api, trends, { hero = it }, onOpen) }
+        item { Row("Тренды", api, trends, { hero = it }, onOpen) }
+        item { Row("Новые фильмы в медиатеке", api, libMovies, { hero = it }, onOpen) }
+        item { Row("Новые сериалы в медиатеке", api, libSeries, { hero = it }, onOpen) }
         HOME_FEEDS.forEach { f -> item { Row(f.name, api, feed[f.name] ?: emptyList(), { hero = it }, onOpen) { onFeed(f) } } }
-        item { Row("Новинки в библиотеке", api, fresh, { hero = it }, onOpen) }
-        item { Row("Рекомендации для вас", api, recs, { hero = it }, onOpen) }
     }
 }
 
@@ -505,7 +573,9 @@ fun DetailScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit) {
     LaunchedEffect(item.id) { tm = api.tmdbInfo(item.title, serial) }
     var balancers by remember { mutableStateOf(listOf("Filmix" to "/lite/filmix")) }
     LaunchedEffect(Unit) { balancers = api.balancers() }
-    BackHandler { back() }
+    var panel by remember { mutableStateOf<String?>(null) }     // null | src | online
+    val ctx = LocalContext.current
+    BackHandler { if (panel == "online") panel = "src" else if (panel != null) panel = null else back() }
     Box(Modifier.fillMaxSize()) {
         AsyncImage(item.torrentPoster ?: api.img(item.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.3f)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(LocalPad.current, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -523,13 +593,28 @@ fun DetailScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit) {
             if (t != null && t.director.isNotBlank()) Text("Режиссёр: ${t.director}", color = Color(0xFF9AA0AE), fontSize = 13.sp)
             if (t != null && t.cast.isNotEmpty()) Text("В ролях: ${t.cast.joinToString(", ")}", color = Color(0xFF9AA0AE), fontSize = 13.sp, maxLines = 2)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (jf) Chip("▶ Смотреть (Jellyfin)", true) { if (item.type == "Series") go(Screen.Series(item)) else go(Screen.Play(PlayReq(listOf(item), 0))) }
-                Chip("Торренты") { go(Screen.Torrents(item)) }
+                Chip("▶ Смотреть", true) { panel = "src" }
                 Chip("← Назад") { back() }
             }
-            Text("Смотреть онлайн:", color = Cyan, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(balancers) { b -> Chip(b.first) { go(Screen.Home(4, api.searchUrl(b.second, item.title, serial))) } }
+        }
+        // правая панель источников: Jellyfin / Торренты / Онлайн / Трейлеры
+        if (panel != null) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.CenterEnd) {
+            val fr = remember { FocusRequester() }
+            LaunchedEffect(panel) { delay(100); runCatching { fr.requestFocus() } }
+            Column(Modifier.width(340.dp).padding(end = 24.dp).clip(RoundedCornerShape(16.dp)).background(Bg2).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val opts: List<Pair<String, () -> Unit>> = if (panel == "online") balancers.map { b -> b.first to { go(Screen.Home(4, api.searchUrl(b.second, item.title, serial))) } }
+                else buildList {
+                    if (jf) add("Jellyfin (моя медиатека)" to { if (item.type == "Series") go(Screen.Series(item)) else go(Screen.Play(PlayReq(listOf(item), 0))) })
+                    add("Торренты" to { go(Screen.Torrents(item)) })
+                    add("Онлайн ›" to { panel = "online" })
+                    add("Трейлеры" to { runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(item.title + " трейлер"))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } })
+                }
+                Text(if (panel == "online") "Онлайн-источники" else "Где смотреть", color = Cyan, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                opts.forEachIndexed { i, (label, act) ->
+                    Focusable(Modifier.fillMaxWidth().let { if (i == 0) it.focusRequester(fr) else it }, onClick = act) { f ->
+                        Text(label, color = if (f) Bg else Color.White, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().background(if (f) Cyan else Color(0xFF1A1D29)).padding(14.dp))
+                    }
+                }
             }
         }
     }
@@ -738,6 +823,7 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
     fun hudShow(t: String) { hud = t; hudUntil = System.currentTimeMillis() + 900 }
     var sleepAt by remember { mutableStateOf(0L) }            // 0 = таймер выключен
     var sleepEnd by remember { mutableStateOf(false) }        // «до конца серии»
+    var vsz by remember { mutableIntStateOf(0) }               // высота кадра: при смене разрешения пересоздаём поверхность видео
     var onlineQ by remember { mutableStateOf<String?>(null) }   // выбранное качество онлайн-потока
     var bright by remember { mutableFloatStateOf(-1f) }       // яркость плеера: -1 = авто (системная)
     fun setBright(b: Float) { bright = b; act?.window?.let { w -> val lp = w.attributes; lp.screenBrightness = b; w.attributes = lp } }
@@ -790,10 +876,11 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                 if (state == Player.STATE_ENDED) scope.launch {
                     info?.let { api.reportStop(cur.id, it, ps, cur.runTicks / 10_000) }
                     if (cur.type == "Torrent") api.saveHistory(cur, player.duration, player.duration)   // досмотрено: убрать из «Продолжить»
-                    if (sleepEnd) { exit(); return@launch }
+                    if (sleepEnd) { act?.finish(); return@launch }
                     if (!req.movieVoices && idx + 1 < list.size) { idx++; info = null; audioIdx = null; load(0) } else exit()
                 }
             }
+            override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) { vsz = v.height }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 val c = error.cause
                 err = if (c is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
@@ -826,7 +913,16 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                 info?.let { api.reportProgress(cur.id, it, ps, player.currentPosition) }
                 if (cur.type == "Torrent") api.saveHistory(cur, player.currentPosition, player.duration.coerceAtLeast(0))   // «Продолжить» не теряется при обрыве
             }
-            if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { sleepAt = 0; player.pause(); exit() }   // слип-таймер
+            if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { sleepAt = 0; player.pause(); act?.finish() }   // слип-таймер
+        }
+    }
+    // запуск из «Продолжить»: в списке одна серия, дотягиваем остальные серии сериала для кнопки «Серии» и следующей серии
+    LaunchedEffect(Unit) {
+        val c0 = list.getOrNull(idx)
+        if (list.size == 1 && c0 != null && c0.type == "Episode" && c0.seriesId != null && !req.movieVoices) runCatching {
+            val eps = api.episodes(c0.seriesId).toMutableList()
+            val k = eps.indexOfFirst { it.id == c0.id }
+            if (k >= 0) { eps[k] = c0; list = eps; idx = k }
         }
     }
     LaunchedEffect(menu) { if (menu == null) runCatching { root.requestFocus() } }
@@ -886,8 +982,8 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                 }
             }
     ) {
-        AndroidView({ (android.view.LayoutInflater.from(it).inflate(R.layout.kl_player_view, null) as PlayerView).apply { this.player = player; keepScreenOn = true } }, Modifier.fillMaxSize(),
-            update = { it.resizeMode = when (fit) { 1 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM; 2 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT } })
+        key(vsz) { AndroidView({ (android.view.LayoutInflater.from(it).inflate(R.layout.kl_player_view, null) as PlayerView).apply { this.player = player; keepScreenOn = true } }, Modifier.fillMaxSize(),
+            update = { it.resizeMode = when (fit) { 1 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM; 2 -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL; else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT } }) }
         val dur = player.duration.takeIf { it > 0 } ?: 1L
         key(tick) {
             if (System.currentTimeMillis() < hudUntil) Text(hud, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold,
@@ -896,14 +992,18 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
             val shown = menu == null && (!player.isPlaying || System.currentTimeMillis() < uiUntil)
             if (!shown) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth((pos.toFloat() / dur).coerceIn(0f, 1f)).height(3.dp).background(Cyan))
             if (shown) {
-                // шапка: название и серия
-                Column(Modifier.align(Alignment.TopStart).fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))).padding(horizontal = 24.dp, vertical = 16.dp)) {
-                    Text(cur.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    val epi = cur.sub.ifEmpty { "" } + (if (list.size > 1 && !req.movieVoices) "   (${idx + 1} из ${list.size})" else "") + "   [${q.label}]"
-                    Text(epi.trim(), color = Color(0xFFB8BECC), fontSize = 14.sp, maxLines = 1)
+                // шапка: назад, название и серия, серии и настройки
+                Row(Modifier.align(Alignment.TopStart).fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent))).statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    IconBtn(Icons.Filled.ArrowBack, "Назад", ::hudShow) { exit() }
+                    Column(Modifier.weight(1f)) {
+                        Text(cur.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        val epi = cur.sub.ifEmpty { "" } + (if (list.size > 1 && !req.movieVoices) "   (${idx + 1} из ${list.size})" else "") + "   [${q.label}]"
+                        Text(epi.trim(), color = Color(0xFFB8BECC), fontSize = 13.sp, maxLines = 1)
+                    }
                 }
                 // низ: таймлайн и кнопки
-                Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000)))).padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000)))).navigationBarsPadding().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(fmtTime(pos), color = Color.White, fontSize = 14.sp)
                         Box(Modifier.weight(1f).height(32.dp).padding(horizontal = 12.dp)
@@ -914,14 +1014,23 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                         }
                         Text(fmtTime(if (player.duration > 0) player.duration else 0), color = Color.White, fontSize = 14.sp)
                     }
-                    TvLazyRow(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-                        item { Chip("−30 с") { seek(-30_000) } }
-                        item { Chip("−10 с") { seek(-10_000) } }
-                        item { Chip(if (player.isPlaying) "Пауза" else "Играть", true) { player.playWhenReady = !player.playWhenReady; poke() } }
-                        item { Chip("+10 с") { seek(10_000) } }
-                        item { Chip("+30 с") { seek(30_000) } }
-                        if (hasNext) item { Chip("След. серия") { next() } }
-                        item { Chip("Озвучка · звук · субтитры") { menu = "main" } }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+                        IconBtn(Icons.Filled.Replay30, "Назад 30 с", ::hudShow) { seek(-30_000) }
+                        IconBtn(Icons.Filled.Replay10, "Назад 10 с", ::hudShow) { seek(-10_000) }
+                        PlayBtn(player.isPlaying) { player.playWhenReady = !player.playWhenReady; poke() }
+                        IconBtn(Icons.Filled.Forward10, "Вперёд 10 с", ::hudShow) { seek(10_000) }
+                        IconBtn(Icons.Filled.Forward30, "Вперёд 30 с", ::hudShow) { seek(30_000) }
+                        if (hasNext) IconBtn(Icons.Filled.SkipNext, "Следующая серия", ::hudShow) { next() }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        if (!req.movieVoices && list.size > 1) IconBtn(Icons.Filled.PlaylistPlay, "Серии", ::hudShow) { menu = "episodes" }
+                        if (cur.url != null && voices.isNotEmpty() || req.movieVoices) IconBtn(Icons.Filled.RecordVoiceOver, "Озвучка", ::hudShow) { menu = "voice" }
+                        IconBtn(Icons.Filled.VolumeUp, "Звуковые дорожки", ::hudShow) { menu = "audio" }
+                        IconBtn(Icons.Filled.Subtitles, "Субтитры", ::hudShow) { menu = "subs" }
+                        if (cur.url == null || cur.qualities.size > 1) IconBtn(Icons.Filled.HighQuality, "Качество", ::hudShow) { menu = "quality" }
+                        IconBtn(Icons.Filled.AspectRatio, "Масштаб", ::hudShow) { menu = "scale" }
+                        IconBtn(Icons.Filled.BrightnessMedium, "Яркость", ::hudShow) { menu = "bright" }
+                        IconBtn(Icons.Filled.Bedtime, "Таймер сна", ::hudShow) { menu = "sleep" }
                     }
                 }
             }
@@ -936,7 +1045,9 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                 hudShow(if (m == 0) "Таймер сна выключен" else if (m == -1) "Сон: после этой серии" else "Сон через $m мин") },
             cur.qualities.keys.sortedByDescending { k -> k.filter(Char::isDigit).toIntOrNull() ?: 0 },
             onlineQ?.takeIf { k -> k in cur.qualities } ?: cur.qualities.entries.firstOrNull { e -> e.value == cur.url }?.key ?: "",
-            { l -> menu = null; onlineQ = l; hudShow("Качество: $l"); scope.launch { load(player.currentPosition, true) } }) }
+            { l -> menu = null; onlineQ = l; hudShow("Качество: $l"); scope.launch { load(player.currentPosition, true) } },
+            list.mapIndexed { i, e -> ((if (i == idx) "● " else "") + listOf(e.sub, e.title).filter { x -> x.isNotBlank() }.distinct().joinToString(" · ")) to { menu = null
+                scope.launch { info?.let { inf -> api.reportStop(cur.id, inf, ps, player.currentPosition) }; idx = i; info = null; audioIdx = null; load(0) }; Unit } }) }
     }
 }
 
@@ -945,7 +1056,8 @@ private var infoFor: String = ""
 @Composable
 fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online: Boolean, voiceNames: List<Pair<String, () -> Unit>>, setMenu: (String?) -> Unit, pickQuality: (Quality) -> Unit, pickAudio: (Int) -> Unit,
                scaleLabel: String, pickScale: (Int) -> Unit, brightLabel: String, pickBright: (Float) -> Unit, sleepLabel: String, pickSleep: (Int) -> Unit,
-               onlineQs: List<String>, onlineQLabel: String, pickOnlineQ: (String) -> Unit) {
+               onlineQs: List<String>, onlineQLabel: String, pickOnlineQ: (String) -> Unit,
+               episodes: List<Pair<String, () -> Unit>>) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(menu) { delay(100); runCatching { fr.requestFocus() } }
     val entries = mutableListOf<Pair<String, () -> Unit>>()
@@ -953,6 +1065,7 @@ fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online:
     when (menu) {
         "main" -> {
             title = "Настройки воспроизведения"
+            if (episodes.size > 1) entries += "Серии" to { setMenu("episodes") }
             if (online && voiceNames.isNotEmpty()) entries += "Озвучка / перевод" to { setMenu("voice") }
             entries += "Аудиодорожки" to { setMenu("audio") }
             entries += "Субтитры" to { setMenu("subs") }
@@ -971,9 +1084,10 @@ fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online:
         "sleep" -> {
             title = "Таймер сна"
             entries += "Выключить" to { pickSleep(0) }
-            listOf(15, 30, 45, 60, 90).forEach { m -> entries += "Через $m мин" to { pickSleep(m) } }
+            listOf(1, 15, 30, 45, 60, 90).forEach { m -> entries += "Через $m мин" to { pickSleep(m) } }
             entries += "После этой серии" to { pickSleep(-1) }
         }
+        "episodes" -> { title = "Серии"; entries += episodes }
         "voice" -> { title = "Озвучка / перевод"; voiceNames.forEach { entries += it } }
         "quality" -> {
             title = "Качество"
@@ -1004,7 +1118,8 @@ fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online:
         }
     }
     Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.width(520.dp).clip(RoundedCornerShape(16.dp)).background(Bg2).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val maxH = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.88f).dp
+        Column(Modifier.width(520.dp).heightIn(max = maxH).clip(RoundedCornerShape(16.dp)).background(Bg2).padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, color = Cyan, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             if (entries.isEmpty()) Text("Нет вариантов", color = Color.Gray)
             entries.forEachIndexed { i, (label, act) ->
