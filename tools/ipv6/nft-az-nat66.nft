@@ -1,0 +1,14 @@
+# NAT66 для ULA-клиентов AntiZapret/VPN (fdaf:2900::/32 - AZ, fdaf:2800::/32 - Full VPN).
+# Подставьте внешний интерфейс узла вместо EXT_IF (eth0 / ens3 / enp3s0). Ставится в /etc/nft-az-nat66.nft.
+table ip6 az_nat66
+delete table ip6 az_nat66
+table ip6 az_nat66 {
+  chain masq {
+    type nat hook postrouting priority 100; policy accept;
+    ip6 saddr { fdaf:2900::/32, fdaf:2800::/32 } oifname "EXT_IF" masquerade
+  }
+  chain isolate {
+    type filter hook forward priority 0; policy accept;
+    ip6 saddr { fdaf:2900::/32, fdaf:2800::/32 } ip6 daddr { fdaf:2900::/32, fdaf:2800::/32 } drop
+  }
+}

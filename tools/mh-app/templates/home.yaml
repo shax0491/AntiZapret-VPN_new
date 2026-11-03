@@ -74,7 +74,8 @@ proxy-groups:
   - {"name": "🇳🇱 NL2", "type": "select", "use": ["az-vless"], "filter": "NL2", "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Auto.png"}
   - {"name": "🇱🇻 LV1", "type": "select", "use": ["az-vless"], "filter": "LV1", "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Auto.png"}
   - {"name": "Заблокированное в РФ", "type": "select", "proxies": ["Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png"}
-  - {"name": "4PDA", "type": "select", "proxies": ["Авто — без Proton", "🇳🇱 NL2", "🇱🇻 LV1", "🇩🇪 DE4", "Авто — самый быстрый", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png"}
+  - {"name": "Исключения (без Proton)", "type": "select", "proxies": ["Фикс. выход (стабильный IP)", "Авто — без Proton", "Напрямую (провайдер)", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Bypass.png"}
+  - {"name": "Фикс. выход (стабильный IP)", "type": "fallback", "use": ["az-vless"], "filter": "(DE2|DE4|DE1|NL2) \\| VLESS прямой", "url": "http://www.gstatic.com/generate_204", "interval": 120, "lazy": false, "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Direct.png"}
   - {"name": "YouTube", "type": "select", "proxies": ["Zapret — напрямую", "Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png"}
   - {"name": "Telegram", "type": "select", "proxies": ["Авто — без Proton", "Авто — самый быстрый", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Telegram.png"}
   - {"name": "ИИ — ChatGPT и Claude", "type": "select", "proxies": ["Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/ChatGPT.png"}
@@ -229,11 +230,22 @@ rule-providers:
 rules:
   # alphavps.com: Cloudflare блокирует (1020) все серверные выходы и Proton, с домашнего интернета открывается - только напрямую (03.11)
   - DOMAIN-SUFFIX,alphavps.com,Напрямую (провайдер)
+  # Домены, которые банит Proton или которым нужен один постоянный IP (RuTracker: cookie Cloudflare/сессия привязаны к IP; 03.11)
+  - DOMAIN-SUFFIX,rutracker.org,Исключения (без Proton)
+  - DOMAIN-SUFFIX,rutracker.net,Исключения (без Proton)
+  - DOMAIN-SUFFIX,rutracker.nl,Исключения (без Proton)
+  - DOMAIN-SUFFIX,rutracker.cr,Исключения (без Proton)
+  - DOMAIN-SUFFIX,t-ru.org,Исключения (без Proton)
+  - DOMAIN-SUFFIX,rutrk.org,Исключения (без Proton)
+  - DOMAIN-SUFFIX,imgur.com,Исключения (без Proton)
+  - DOMAIN-SUFFIX,danbooru.donmai.us,Исключения (без Proton)
+  - DOMAIN-SUFFIX,editmysite.com,Исключения (без Proton)
+  - DOMAIN-SUFFIX,screamingfrog.co.uk,Исключения (без Proton)
   - DOMAIN-SUFFIX,ogs.google.com,ИИ — ChatGPT и Claude
   - DOMAIN-SUFFIX,play.google.com,ИИ — ChatGPT и Claude
   # 4pda.to напрямую у провайдера не открывается в браузере (ответ на TLS-запрос не приходит, curl проходит) - через VPN (30.10)
-  - DOMAIN-SUFFIX,4pda.to,4PDA
-  - DOMAIN-SUFFIX,4pda.ru,4PDA
+  - DOMAIN-SUFFIX,4pda.to,Исключения (без Proton)
+  - DOMAIN-SUFFIX,4pda.ru,Исключения (без Proton)
   # кухонный ТВ (AT_MiTVStick, 192.168.1.61): телеметрия и реклама Xiaomi/Google - REJECT (30.10, по просьбе)
   - AND,((SRC-IP-CIDR,192.168.1.61/32),(DOMAIN-SUFFIX,mistat.xiaomi.com)),REJECT
   - AND,((SRC-IP-CIDR,192.168.1.61/32),(DOMAIN-SUFFIX,mistat.intl.xiaomi.com)),REJECT
