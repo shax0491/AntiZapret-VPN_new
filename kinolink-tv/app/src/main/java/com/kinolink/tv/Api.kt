@@ -232,6 +232,82 @@ class Api(ctx: Context) {
         }.getOrNull()
     }
 
+    // ---- Локальное избранное для карточек TMDB (у Jellyfin их нет): на пользователя, хранится на устройстве ----
+    private fun lfavRead(): JSONArray = runCatching { JSONArray(sp.getString("lfav_$uid", "[]")) }.getOrDefault(JSONArray())
+    fun localFavs(): List<Item> {
+        val a = lfavRead()
+        return (0 until a.length()).mapNotNull { i -> runCatching { a.getJSONObject(i).let { o ->
+            Item(o.getString("id"), o.getString("t"), o.optString("s"), "Trend", "", o.optString("b"), null, 0, 0, o.optDouble("r", 0.0), o.optString("ov"), null, o.optString("p")) } }.getOrNull() }
+    }
+    fun isLocalFav(id: String) = localFavs().any { it.id == id }
+    /** Переключает; возвращает новое состояние (true = в избранном). */
+    fun toggleLocalFav(it: Item): Boolean {
+        val cur = localFavs()
+        val now = cur.none { x -> x.id == it.id }
+        val out = JSONArray()
+        (if (now) listOf(it) + cur else cur.filter { x -> x.id != it.id }).forEach { x ->
+            out.put(JSONObject().put("id", x.id).put("t", x.title).put("s", x.sub).put("b", x.backdropId).put("r", x.rating).put("ov", x.overview).put("p", x.torrentPoster ?: ""))
+        }
+        sp.edit().putString("lfav_$uid", out.toString()).apply()
+        return now
+    }
+
+    // ---- Заставка (экранная): настройки хранятся на устройстве ----
+    var ssOn: Boolean get() = sp.getBoolean("ss_on", true); set(v) = sp.edit().putBoolean("ss_on", v).apply()
+    var ssMin: Int get() = sp.getInt("ss_min", 5); set(v) = sp.edit().putInt("ss_min", v).apply()
+    var ssTheme: String get() = sp.getString("ss_theme", "new")!!; set(v) = sp.edit().putString("ss_theme", v).apply()
+
+    private fun tmdbGet(path: String): JSONObject =
+        JSONObject(http.newCall(Request.Builder().url("$lampac/tmdb/api/3/$path${if ('?' in path) "&" else "?"}api_key=${Secrets.TMDB}&language=ru-RU&uid=$lampacUid").build()).execute().use { it.body!!.string() })
+
+    private fun tmdbBackdrops(path: String): List<String> {
+        val arr = tmdbGet(path).getJSONArray("results")
+        return (0 until arr.length()).map { arr.getJSONObject(it).optString("backdrop_path") }.filter { it.isNotEmpty() }.map { "$lampac/tmdb/img/t/p/w1280$it?uid=$lampacUid" }
+    }
+
+    /** Картинки для заставки по теме: new / trend / library / cartoon / anime / nature (документальное кино о природе). */
+    suspend fun screensaverImages(theme: String): List<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+            when (theme) {
+                "trend" -> tmdbBackdrops("trending/all/week")
+                "library" -> catalog("Movie,Series", "DateCreated", 40).filter { it.backdropId.isNotEmpty() }.map { img(it.backdropId, "Backdrop", 1280) }
+                "cartoon" -> tmdbBackdrops("discover/movie?with_genres=16&sort_by=popularity.desc")
+                "anime" -> tmdbBackdrops("discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc")
+                "nature" -> tmdbBackdrops("discover/movie?with_genres=99&sort_by=popularity.desc") + tmdbBackdrops("discover/tv?with_genres=99&sort_by=popularity.desc")
+                else -> tmdbBackdrops("discover/movie?sort_by=primary_release_date.desc&primary_release_date.lte=$today&vote_count.gte=15") +
+                    tmdbBackdrops("discover/tv?sort_by=first_air_date.desc&first_air_date.lte=$today&vote_count.gte=5")
+            }.shuffled()
+        }.getOrDefault(emptyList())
+    }
+
+    // ---- Полная карточка TMDB: страна, дата, статус, режиссёры и актёры с фото, рекомендации и похожие ----
+    data class Person(val name: String, val role: String, val photo: String)
+    data class TmdbFull(val country: String, val release: String, val status: String, val directors: List<Person>, val actors: List<Person>, val recs: List<Item>, val similar: List<Item>)
+
+    private fun tmdbItem(it: JSONObject, serial: Boolean) = Item(it.optString("id"), it.optString("title").ifEmpty { it.optString("name") }, if (serial) "Сериал" else "Фильм", "Trend", "",
+        it.optString("backdrop_path").let { b -> if (b.isNotEmpty()) "$lampac/tmdb/img/t/p/w1280$b?uid=$lampacUid" else "" }, null, 0, 0,
+        it.optDouble("vote_average", 0.0), it.optString("overview"), null, "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid")
+
+    suspend fun tmdbFull(item: Item, serial: Boolean): TmdbFull? = withContext(Dispatchers.IO) {
+        runCatching {
+            val kind = if (serial) "tv" else "movie"
+            val id = if (item.type == "Trend") item.id else tmdbGet("search/$kind?query=${e(item.title)}").getJSONArray("results").getJSONObject(0).getInt("id").toString()
+            val d = tmdbGet("$kind/$id?append_to_response=credits,recommendations,similar")
+            val months = listOf("Января", "Февраля", "Марта", "Апреля", "Мая", "Июня", "Июля", "Августа", "Сентября", "Октября", "Ноября", "Декабря")
+            val rel = d.optString("release_date").ifEmpty { d.optString("first_air_date") }.split("-").let { p -> if (p.size == 3) "${p[2].toInt()} ${months[p[1].toInt() - 1]} ${p[0]}" else "" }
+            val country = d.optJSONArray("production_countries")?.let { c -> (0 until c.length()).joinToString(", ") { c.getJSONObject(it).optString("iso_3166_1").let { iso -> java.util.Locale("", iso).getDisplayCountry(java.util.Locale("ru")).ifEmpty { iso } } } }?.takeIf { it.isNotEmpty() }
+                ?: d.optJSONArray("origin_country")?.let { c -> (0 until c.length()).joinToString(", ") { c.getString(it).let { iso -> java.util.Locale("", iso).getDisplayCountry(java.util.Locale("ru")).ifEmpty { iso } } } } ?: ""
+            val status = when (d.optString("status")) { "Released" -> "Выпущенный"; "Returning Series" -> "Выходит"; "Ended" -> "Завершён"; "In Production" -> "В производстве"; "Canceled" -> "Закрыт"; else -> d.optString("status") }
+            fun photo(o: JSONObject) = o.optString("profile_path").takeIf { it.isNotEmpty() }?.let { "$lampac/tmdb/img/t/p/w185$it?uid=$lampacUid" } ?: ""
+            val cr = d.optJSONObject("credits")
+            val dirs = cr?.optJSONArray("crew")?.let { c -> (0 until c.length()).map { c.getJSONObject(it) }.filter { it.optString("job") == "Director" }.take(4).map { Person(it.optString("name"), "Режиссёр", photo(it)) } } ?: emptyList()
+            val acts = cr?.optJSONArray("cast")?.let { c -> (0 until minOf(c.length(), 14)).map { c.getJSONObject(it) }.map { Person(it.optString("name"), it.optString("character"), photo(it)) } } ?: emptyList()
+            fun list(key: String) = d.optJSONObject(key)?.optJSONArray("results")?.let { r -> (0 until r.length()).map { r.getJSONObject(it) }.filter { it.optString("poster_path").isNotEmpty() }.map { tmdbItem(it, serial) } } ?: emptyList()
+            TmdbFull(country, rel, status, dirs, acts, list("recommendations"), list("similar"))
+        }.getOrNull()
+    }
+
     // ---- История просмотра торрентов: у каждого пользователя Jellyfin своя (ключ по uid), хранится на устройстве ----
     private fun histKey() = "hist_$uid"
     private fun histRead(): JSONArray = runCatching { JSONArray(sp.getString(histKey(), "[]")) }.getOrDefault(JSONArray())
