@@ -104,6 +104,7 @@ import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
 import coil.compose.AsyncImage
 import androidx.compose.foundation.shape.CircleShape
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.graphics.graphicsLayer
@@ -298,7 +299,7 @@ fun Focusable(modifier: Modifier = Modifier, shape: Int = 12, onFocus: () -> Uni
         if (Fx.focus) androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 380f) else androidx.compose.animation.core.snap(), label = "s")
     val glow by animateFloatAsState(if (f) 1f else 0f, fxSpec(220), label = "g")
     Box(
-        modifier.scale(sc)
+        modifier.graphicsLayer { scaleX = sc; scaleY = sc }
             .drawBehind { if (Fx.focus && glow > 0.01f) drawRoundRect(Cyan.copy(alpha = 0.32f * glow), androidx.compose.ui.geometry.Offset(-12f, -12f), androidx.compose.ui.geometry.Size(size.width + 24f, size.height + 24f), androidx.compose.ui.geometry.CornerRadius(shape.dp.toPx() + 12f)) }
             .clip(RoundedCornerShape(shape.dp))
             .border(if (f) 3.dp else 0.dp, if (f) Brush.linearGradient(listOf(Cyan, Color(0xFF7C83FF))) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)), RoundedCornerShape(shape.dp))
@@ -475,12 +476,14 @@ fun Row(title: String, api: Api, items: List<Item>, onFocus: (Item) -> Unit, onC
     LaunchedEffect(Unit) { vis = true }
     val al by animateFloatAsState(if (vis) 1f else 0f, fxSpec(550), label = "ra")
     val off by animateDpAsState(if (vis) 0.dp else 28.dp, fxSpec(550), label = "ro")
-    Column(Modifier.padding(vertical = 8.dp).offset(y = off).alpha(al)) {
+    val rowState = androidx.tv.foundation.lazy.list.rememberTvLazyListState()
+    val endShown by remember { derivedStateOf { val li = rowState.layoutInfo; li.totalItemsCount > 0 && li.visibleItemsInfo.lastOrNull()?.index == li.totalItemsCount - 1 } }
+    Column(Modifier.padding(vertical = 8.dp).graphicsLayer { translationY = off.toPx(); this.alpha = al }) {
         Row(Modifier.fillMaxWidth().padding(start = LocalPad.current, end = LocalPad.current / 3, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            if (onMore != null) Chip("Ещё ›") { onMore() }   // полный экран ленты: сетка + сортировка
+            if (onMore != null && !endShown) Chip("Ещё ›") { onMore() }   // полный экран ленты: сетка + сортировка
         }
-        TvLazyRow(contentPadding = PaddingValues(horizontal = LocalPad.current), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        TvLazyRow(state = rowState, contentPadding = PaddingValues(horizontal = LocalPad.current), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(items) { PosterCard(api, it, onFocus, onClick) }
             // в конце ряда — карточка «Ещё», когда ряд долистан
             if (onMore != null) item {
@@ -754,7 +757,7 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
     // фокус на строке → она встаёт наверх; на касание лента доезжает до ближайшей строки
     var focusRow by remember { mutableIntStateOf(0) }
     // небольшая задержка: сначала отрабатывает системная прокрутка «показать в фокусе», потом строка встаёт наверх
-    LaunchedEffect(focusRow) { delay(80); homeState.animateScrollToItem(focusRow) }
+    LaunchedEffect(Unit) { snapshotFlow { focusRow }.collectLatest { delay(80); homeState.animateScrollToItem(it) } }
     // после касательной прокрутки лента доезжает до ближайшей строки, а не стоит посередине
     LaunchedEffect(Unit) {
         snapshotFlow { homeState.isScrollInProgress }.collect { moving ->
@@ -806,10 +809,10 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
           }
         }
         item { Box(Modifier.rowFocus(1)) { ContinueRow(api, resume, onOpen) } }
-        item { Box(Modifier.rowFocus(2)) { Row("Тренды", api, trends, { hero = it }, onOpen) { onFeed(FeedDef("Тренды", false, "trending", "pop", 0)) } } }
-        item { Box(Modifier.rowFocus(3)) { Row("Новые фильмы в медиатеке", api, libMovies, { hero = it }, onOpen) { onFeed(FeedDef("Новые фильмы в медиатеке", false, "lib:Movie", "date", 0)) } } }
-        item { Box(Modifier.rowFocus(4)) { Row("Новые сериалы в медиатеке", api, libSeries, { hero = it }, onOpen) { onFeed(FeedDef("Новые сериалы в медиатеке", true, "lib:Series", "date", 0)) } } }
-        HOME_FEEDS.forEachIndexed { k, f -> item { Box(Modifier.rowFocus(5 + k)) { Row(f.name, api, feed[f.name] ?: emptyList(), { hero = it }, onOpen) { onFeed(f) } } } }
+        item { Box(Modifier.rowFocus(2)) { Row("Тренды", api, trends, {}, onOpen) { onFeed(FeedDef("Тренды", false, "trending", "pop", 0)) } } }
+        item { Box(Modifier.rowFocus(3)) { Row("Новые фильмы в медиатеке", api, libMovies, {}, onOpen) { onFeed(FeedDef("Новые фильмы в медиатеке", false, "lib:Movie", "date", 0)) } } }
+        item { Box(Modifier.rowFocus(4)) { Row("Новые сериалы в медиатеке", api, libSeries, {}, onOpen) { onFeed(FeedDef("Новые сериалы в медиатеке", true, "lib:Series", "date", 0)) } } }
+        HOME_FEEDS.forEachIndexed { k, f -> item { Box(Modifier.rowFocus(5 + k)) { Row(f.name, api, feed[f.name] ?: emptyList(), {}, onOpen) { onFeed(f) } } } }
     }
 }
 
