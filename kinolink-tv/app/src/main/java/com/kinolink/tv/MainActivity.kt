@@ -341,6 +341,9 @@ fun IconBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String,
 
 /** Стеклянная панель: полупрозрачный градиент + светлая кромка, появляется с задержкой по порядку (idx). */
 @Composable
+fun Panel(plain: Boolean, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) { if (plain) Column(modifier, content = content) else Glass(0, modifier, content = content) }
+
+@Composable
 fun Glass(idx: Int = 0, modifier: Modifier = Modifier, solid: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     var vis by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { if (Fx.anim) delay(idx * 70L); vis = true }
@@ -1648,6 +1651,12 @@ fun OnlineScreen(api: Api, title: String, url: String, onPlay: (PlayReq) -> Unit
     fun qsort(q: Map<String, String>) = q.entries.sortedByDescending { it.key.filter(Char::isDigit).toIntOrNull() ?: 0 }
     BackHandler { goBack() }
     GlowBg {
+        val sNode = stack.lastOrNull()
+        if (item != null && (sNode?.type == "season" || sNode?.type == "episode")) {
+            val bg = when { item.backdropId.startsWith("http") -> item.backdropId; item.backdropId.isNotEmpty() -> api.img(item.backdropId, "Backdrop", 1280); else -> item.torrentPoster.orEmpty() }
+            if (bg.isNotEmpty()) AsyncImage(bg, null, Modifier.fillMaxSize().alpha(0.45f), contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xEE0B0F1A), Color(0x990B0F1A)))))
+        }
         Column(Modifier.fillMaxSize().padding(horizontal = LocalPad.current, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 IconBtn(Icons.Filled.ArrowBack, "Назад") { goBack() }
@@ -1675,7 +1684,7 @@ fun OnlineScreen(api: Api, title: String, url: String, onPlay: (PlayReq) -> Unit
                         Text(listOfNotNull(item.year.take(4).ifEmpty { null }, if (item.rating > 0) "★ %.1f".format(item.rating) else null).joinToString("  "), color = Yellow, fontSize = 15.sp)
                         if (item.overview.isNotEmpty()) Text(item.overview, color = Color(0xFFB8BECC), fontSize = 14.sp)
                     }
-                    if (node.type == "episode" && item != null) Glass(0, Modifier.weight(1f).fillMaxHeight()) {
+                    if (node.type == "episode" && item != null) Panel(true, Modifier.weight(1f).fillMaxHeight()) {
                         val shownEp = node.rows.filter { !dead(it) }
                         TvLazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(shownEp.indices.toList()) { i ->
@@ -1697,7 +1706,7 @@ fun OnlineScreen(api: Api, title: String, url: String, onPlay: (PlayReq) -> Unit
                                 }
                             }
                         }
-                    } else Glass(0, Modifier.weight(1f).fillMaxHeight()) {
+                    } else Panel(serialUi, Modifier.weight(1f).fillMaxHeight()) {
                     TvLazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         val shown = node.rows.filter { !dead(it) }
                         items(shown.indices.toList()) { i ->
