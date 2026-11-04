@@ -1239,7 +1239,7 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
     val player = remember {
         // TorrServer требует basic-auth и на потоке: добавляем заголовок только для его адреса
         // таймауты 8 с по умолчанию рвут холодный старт торрента (поиск пиров ~10-15 с) и медленную мобильную сеть
-        val http = androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(20_000).setReadTimeoutMs(45_000).setAllowCrossProtocolRedirects(true)
+        val http = androidx.media3.datasource.DefaultHttpDataSource.Factory().setConnectTimeoutMs(60_000).setReadTimeoutMs(120_000).setAllowCrossProtocolRedirects(true)
         val ds = androidx.media3.datasource.ResolvingDataSource.Factory(http) { spec ->
             if (spec.uri.toString().startsWith(api.ts)) spec.withAdditionalHeaders(mapOf("Authorization" to api.tsHeader()))
             else if (spec.uri.toString().startsWith(api.base)) spec.withAdditionalHeaders(mapOf("Authorization" to api.jfHeader())) else spec
@@ -1453,6 +1453,7 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                     }
                     IconBtn(Icons.Filled.PictureInPicture, "Картинка в картинке", ::hudShow) { (ctxP as? MainActivity)?.enterPip() }
                     IconBtn(Icons.Filled.Bedtime, "Таймер сна", ::hudShow) { menu = "sleep" }
+                    IconBtn(Icons.Filled.Settings, "Настройки", ::hudShow) { menu = "main" }
                 }
                 // низ: таймлайн и кнопки
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xDD000000)))).navigationBarsPadding().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1490,7 +1491,12 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
             }
         }
         if (waitFlag && err.isEmpty()) TorrentWait(cur.title, tstat)
-        if (err.isNotEmpty()) Text(err, color = Color(0xFFFF6B6B), fontSize = 18.sp, modifier = Modifier.align(Alignment.Center))
+        if (err.isNotEmpty()) Column(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 110.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(err, color = Color(0xFFFF6B6B), fontSize = 18.sp)
+            Chip("Повторить") { scope.launch { load(player.currentPosition, true) } }
+        }
+        // «Назад» всегда доступна: на загрузке торрента и при ошибке остальная панель скрыта
+        if (waitFlag || err.isNotEmpty()) Box(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp)) { IconBtn(Icons.Filled.ArrowBack, "Назад", ::hudShow) { exit() } }
         menu?.let { m -> PlayerMenu(m, player, q, info, cur.url != null, voiceEntries, { menu = it }, { nq -> q = nq; menu = null; scope.launch { load(player.currentPosition, true) } },
             { a -> audioIdx = a; menu = null; scope.launch { load(player.currentPosition, true) } },
             listOf("По размеру", "Заполнить", "Растянуть")[fit], { f -> fit = f; menu = null; hudShow("Масштаб: " + listOf("по размеру", "заполнить", "растянуть")[f]) },
