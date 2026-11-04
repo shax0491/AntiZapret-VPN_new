@@ -43,4 +43,10 @@ jobs:
             exit 0
           fi
           git commit -m 'download/: автосинхронизация доменных и IP-списков с апстримом'
-          git push
+          # GitHub изредка отдаёт 500 на push - повторяем
+          for i in 1 2 3 4; do
+            git push && exit 0
+            sleep $((i * 15))
+            git pull --rebase
+          done
+          exit 1
