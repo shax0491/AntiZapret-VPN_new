@@ -1,5 +1,0 @@
-[Unit]
-Description=Proton tunnels watchdog (handshake + egress), logs to /var/log/proton-watch.log
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/proton-watch

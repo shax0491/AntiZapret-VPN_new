@@ -1,2 +1,0 @@
--dontwarn **
--keep class com.kinolink.tv.** { *; }
