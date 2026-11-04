@@ -1664,6 +1664,10 @@ fun OnlineScreen(api: Api, title: String, url: String, onPlay: (PlayReq) -> Unit
                 var n = api.online(u)
                 // список совпадений: сразу заходим в первое, чтобы не заставлять искать
                 if (n.type == "similar") n.rows.firstNotNullOfOrNull { it.link }?.let { l -> n = api.online(l) }
+                // озвучка по умолчанию русская: если источник включил украинскую, переходим на первую неукраинскую русскую
+                val ua = Regex("(?i)укр|ukr|(?<![a-z])ua(?![a-z])"); val ru = Regex("(?i)рус|rus|дубл|dub|mvo|dvo|lostfilm|кубик|пифагор|рекорд")
+                if (n.voices.firstOrNull { it.first.endsWith("●") }?.first?.let { ua.containsMatchIn(it) } == true)
+                    (n.voices.firstOrNull { !ua.containsMatchIn(it.first) && ru.containsMatchIn(it.first) } ?: n.voices.firstOrNull { !ua.containsMatchIn(it.first) })?.let { v -> n = api.online(v.second) }
                 stack = (if (replace) stack.dropLast(1) else stack) + n
                 if (n.rows.isEmpty()) "Ничего не найдено в этом источнике" else ""
             } catch (e: Exception) { "Ошибка источника: ${e.message}" }
