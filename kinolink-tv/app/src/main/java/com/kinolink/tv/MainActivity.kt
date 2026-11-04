@@ -476,7 +476,7 @@ fun Row(title: String, api: Api, items: List<Item>, onFocus: (Item) -> Unit, onC
     val al by animateFloatAsState(if (vis) 1f else 0f, fxSpec(550), label = "ra")
     val off by animateDpAsState(if (vis) 0.dp else 28.dp, fxSpec(550), label = "ro")
     Column(Modifier.padding(vertical = 8.dp).offset(y = off).alpha(al)) {
-        Row(Modifier.padding(start = LocalPad.current, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = LocalPad.current, end = LocalPad.current, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             if (onMore != null) Chip("Ещё ›") { onMore() }   // полный экран ленты: сетка + сортировка
         }
@@ -682,9 +682,16 @@ fun FeedScreen(api: Api, def: FeedDef, onOpen: (Item) -> Unit, back: () -> Unit)
         scope.launch {
             busy = true
             val p = if (reset) 1 else page + 1
-            val l = runCatching { api.tmdbList(feedQuery(def, if (sort == "az" || sort == "year") "pop" else sort), def.serial, p) }.getOrDefault(emptyList())
+            // особые ленты главной: тренды и медиатека Jellyfin идут одним списком, без подгрузки страниц
+            val l = runCatching {
+                when {
+                    def.filter == "trending" -> api.trending()
+                    def.filter.startsWith("lib:") -> api.catalog(def.filter.removePrefix("lib:"), "DateCreated", 120)
+                    else -> api.tmdbList(feedQuery(def, if (sort == "az" || sort == "year") "pop" else sort), def.serial, p)
+                }
+            }.getOrDefault(emptyList())
             items = if (reset) l else (items + l).distinctBy { it.id }
-            page = p; more = l.size >= 15; busy = false
+            page = p; more = def.filter != "trending" && !def.filter.startsWith("lib:") && l.size >= 15; busy = false
         }
     }
     LaunchedEffect(sort) { busy = false; loadPage(true) }
@@ -706,6 +713,7 @@ fun FeedScreen(api: Api, def: FeedDef, onOpen: (Item) -> Unit, back: () -> Unit)
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> Unit, onSearch: (String) -> Unit) {
     var resume by remember { mutableStateOf<List<Item>>(emptyList()) }
@@ -733,8 +741,25 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
     var q by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     // фокусная строка встаёт по центру экрана: лента листается построчно, а не страницей
-    TvLazyColumn(Modifier.fillMaxSize(), pivotOffsets = androidx.tv.foundation.PivotOffsets(0.5f, 0.5f)) {
+    val homeState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // фокус на строке → она встаёт наверх; на касание лента доезжает до ближайшей строки
+    var focusRow by remember { mutableIntStateOf(0) }
+    // небольшая задержка: сначала отрабатывает системная прокрутка «показать в фокусе», потом строка встаёт наверх
+    LaunchedEffect(focusRow) { delay(80); homeState.animateScrollToItem(focusRow) }
+    // после касательной прокрутки лента доезжает до ближайшей строки, а не стоит посередине
+    LaunchedEffect(Unit) {
+        snapshotFlow { homeState.isScrollInProgress }.collect { moving ->
+            if (!moving && homeState.firstVisibleItemScrollOffset > 0) {
+                val i = homeState.firstVisibleItemIndex
+                val h = homeState.layoutInfo.visibleItemsInfo.firstOrNull()?.size ?: 0
+                homeState.animateScrollToItem(if (homeState.firstVisibleItemScrollOffset > h / 2) i + 1 else i)
+            }
+        }
+    }
+    fun Modifier.rowFocus(i: Int) = onFocusChanged { if (it.hasFocus) focusRow = i }
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), state = homeState) {
         item {
+          Box(Modifier.rowFocus(0)) {
             // верх: сменяемые баннеры новинок (библиотека Jellyfin + новые фильмы и сериалы TMDB), каждые 6 с
             var bad by remember { mutableStateOf(setOf<String>()) }
             val banners = remember(libMovies, libSeries, feed, bad) {
@@ -769,12 +794,13 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
                 }
                 if (err.isNotEmpty()) Text(err, color = Color(0xFFFF6B6B), modifier = Modifier.padding(LocalPad.current))
             }
+          }
         }
-        item { ContinueRow(api, resume, onOpen) }
-        item { Row("Тренды", api, trends, { hero = it }, onOpen) }
-        item { Row("Новые фильмы в медиатеке", api, libMovies, { hero = it }, onOpen) }
-        item { Row("Новые сериалы в медиатеке", api, libSeries, { hero = it }, onOpen) }
-        HOME_FEEDS.forEach { f -> item { Row(f.name, api, feed[f.name] ?: emptyList(), { hero = it }, onOpen) { onFeed(f) } } }
+        item { Box(Modifier.rowFocus(1)) { ContinueRow(api, resume, onOpen) } }
+        item { Box(Modifier.rowFocus(2)) { Row("Тренды", api, trends, { hero = it }, onOpen) { onFeed(FeedDef("Тренды", false, "trending", "pop", 0)) } } }
+        item { Box(Modifier.rowFocus(3)) { Row("Новые фильмы в медиатеке", api, libMovies, { hero = it }, onOpen) { onFeed(FeedDef("Новые фильмы в медиатеке", false, "lib:Movie", "date", 0)) } } }
+        item { Box(Modifier.rowFocus(4)) { Row("Новые сериалы в медиатеке", api, libSeries, { hero = it }, onOpen) { onFeed(FeedDef("Новые сериалы в медиатеке", true, "lib:Series", "date", 0)) } } }
+        HOME_FEEDS.forEachIndexed { k, f -> item { Box(Modifier.rowFocus(5 + k)) { Row(f.name, api, feed[f.name] ?: emptyList(), { hero = it }, onOpen) { onFeed(f) } } } }
     }
 }
 
