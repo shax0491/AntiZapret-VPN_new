@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.PlayArrow
@@ -678,21 +679,21 @@ fun FeedScreen(api: Api, def: FeedDef, onOpen: (Item) -> Unit, back: () -> Unit)
         scope.launch {
             busy = true
             val p = if (reset) 1 else page + 1
-            val l = runCatching { api.tmdbList(feedQuery(def, if (sort == "az") "pop" else sort), def.serial, p) }.getOrDefault(emptyList())
+            val l = runCatching { api.tmdbList(feedQuery(def, if (sort == "az" || sort == "year") "pop" else sort), def.serial, p) }.getOrDefault(emptyList())
             items = if (reset) l else (items + l).distinctBy { it.id }
             page = p; more = l.size >= 15; busy = false
         }
     }
     LaunchedEffect(sort) { busy = false; loadPage(true) }
     BackHandler { back() }
-    val shown = if (sort == "az") items.sortedBy { it.title.lowercase() } else items
+    val shown = when (sort) { "az" -> items.sortedBy { it.title.lowercase() }; "year" -> items.sortedByDescending { it.year }; else -> items }
     Column(Modifier.fillMaxSize().padding(horizontal = LocalPad.current), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Chip("← Назад") { back() }
             Text(def.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
         TvLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(listOf("pop" to "Популярные", "top" to "По рейтингу", "date" to "Новые", "az" to "А–Я")) { (k, n) -> Chip(n, sort == k) { sort = k } }
+            items(listOf("pop" to "Популярные", "top" to "По рейтингу", "date" to "Новые", "year" to "По году", "az" to "А–Я")) { (k, n) -> Chip(n, sort == k) { sort = k } }
         }
         TvLazyVerticalGrid(TvGridCells.Adaptive(if (LocalCompact.current) 118.dp else 150.dp), modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             items(shown) { PosterCard(api, it, {}, onOpen) }
@@ -732,9 +733,10 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
     TvLazyColumn(Modifier.fillMaxSize(), pivotOffsets = androidx.tv.foundation.PivotOffsets(0.5f, 0.5f)) {
         item {
             // верх: сменяемые баннеры новинок (библиотека Jellyfin + новые фильмы и сериалы TMDB), каждые 6 с
-            val banners = remember(libMovies, libSeries, feed) {
+            var bad by remember { mutableStateOf(setOf<String>()) }
+            val banners = remember(libMovies, libSeries, feed, bad) {
                 val a1 = libMovies.take(2) + libSeries.take(1); val b1 = (feed["Фильмы: новинки"] ?: emptyList()).take(3); val c1 = (feed["Сериалы: новинки"] ?: emptyList()).take(3)
-                (0 until 3).flatMap { i -> listOfNotNull(a1.getOrNull(i), b1.getOrNull(i), c1.getOrNull(i)) }.filter { it.backdropId.isNotEmpty() }
+                (0 until 3).flatMap { i -> listOfNotNull(a1.getOrNull(i), b1.getOrNull(i), c1.getOrNull(i)) }.filter { it.backdropId.isNotEmpty() && it.id !in bad }
             }
             var bi by remember { mutableIntStateOf(0) }
             LaunchedEffect(banners.size) { while (banners.size > 1) { delay(6000); bi = (bi + 1) % banners.size } }
@@ -746,19 +748,19 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
                         Box(Modifier.fillMaxSize()) {
                             val zoom by androidx.compose.animation.core.rememberInfiniteTransition(label = "kb").animateFloat(1f, 1.09f,
                                 androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(9000, easing = androidx.compose.animation.core.LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "kbz")
-                            AsyncImage(if (b.backdropId.startsWith("http")) b.backdropId else api.img(b.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize().graphicsLayer { val z = if (Fx.ken) zoom else 1f; scaleX = z; scaleY = z }, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, alpha = 0.75f)
+                            AsyncImage(if (b.backdropId.startsWith("http")) b.backdropId else api.img(b.backdropId, "Backdrop", 1280), null, Modifier.fillMaxSize().graphicsLayer { val z = if (Fx.ken) zoom else 1f; scaleX = z; scaleY = z }, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, alpha = 0.75f, onError = { bad = bad + b.id })
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Bg))))
                             Column(Modifier.align(Alignment.BottomStart).padding(start = LocalPad.current, end = LocalPad.current, bottom = 22.dp).widthIn(max = 620.dp)) {
                                 Text(b.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                 Text(b.sub + if (b.rating > 0) "   ★ %.1f".format(b.rating) else "", color = Yellow, fontSize = 15.sp)
                                 Text(b.overview, color = Color(0xFFCCCCCC), fontSize = 13.sp, maxLines = 2)
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Chip("Смотреть", true) { onOpen(b) }
-                                    if (b.type == "Movie" || b.type == "Series") {
-                                        var fav by remember(b.id) { mutableStateOf(false) }
-                                        LaunchedEffect(b.id) { fav = api.isFavorite(b.id) }
-                                        Chip(if (fav) "★ В избранном" else "☆ В избранное") { scope.launch { runCatching { api.setFavorite(b.id, !fav); fav = !fav } } }
-                                    }
+                            }
+                            Row(Modifier.align(Alignment.BottomEnd).padding(end = LocalPad.current, bottom = 34.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Chip("Смотреть", true) { onOpen(b) }
+                                if (b.type == "Movie" || b.type == "Series") {
+                                    var fav by remember(b.id) { mutableStateOf(false) }
+                                    LaunchedEffect(b.id) { fav = api.isFavorite(b.id) }
+                                    Chip(if (fav) "★ В избранном" else "☆ В избранное") { scope.launch { runCatching { api.setFavorite(b.id, !fav); fav = !fav } } }
                                 }
                             }
                         }
@@ -1279,7 +1281,6 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
         if (item.url != null) {
             // адрес торрента пересобираем: дома/снаружи он разный, а в истории мог сохраниться старый
             val u = if (item.type == "Torrent" && item.torrentHash != null) "${api.ts}/stream?link=${item.torrentHash}&index=${item.id.substringAfter(':', "1")}&play" else (onlineQ?.let { item.qualities[it] } ?: item.url)
-            android.util.Log.i("KL", "play " + u)
             player.setMediaItem(MediaItem.fromUri(u), startMs)
         } else if (item.type == "Torrent") {
             player.setMediaItem(MediaItem.fromUri(api.torrentUrl(item.torrentHash!!)), startMs)
@@ -1439,6 +1440,11 @@ fun PlayerScreen(api: Api, req: PlayReq, exit: () -> Unit) {
                         if (st.isNotEmpty()) Text(st, color = Cyan, fontSize = 12.sp, maxLines = 1)
                     }
                     if (!req.movieVoices && list.size > 1) IconBtn(Icons.Filled.PlaylistPlay, "Серии", ::hudShow) { menu = "episodes" }
+                    IconBtn(Icons.Filled.Cast, "Трансляция на другое устройство", ::hudShow) {
+                        // шаг в сторону от Lampa: сокет-трансляция у нас выключена, поэтому отдаём поток приложению с Cast/DLNA (VLC, BubbleUPnP и т.п.)
+                        val u = player.currentMediaItem?.localConfiguration?.uri
+                        if (u != null) runCatching { ctxP.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(u, "video/*").putExtra("title", cur.title), "Транслировать на устройство").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    }
                     IconBtn(Icons.Filled.PictureInPicture, "Картинка в картинке", ::hudShow) { (ctxP as? MainActivity)?.enterPip() }
                     IconBtn(Icons.Filled.Bedtime, "Таймер сна", ::hudShow) { menu = "sleep" }
                 }
@@ -1556,7 +1562,6 @@ fun PlayerMenu(menu: String, player: ExoPlayer, q: Quality, info: Info?, online:
             else if (online) {
                 // качества нет в ответе источника: берём варианты из самого HLS-потока (как делает Lampa)
                 val vg = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
-                android.util.Log.i("KL", "video groups=" + vg.map { g -> (0 until g.length).map { i -> g.getTrackFormat(i).height.toString() + (if (g.isTrackSupported(i, false)) "" else "x") } })
                 val any = vg.any { g -> (0 until g.length).any { g.isTrackSelected(it) } }
                 entries += (if (player.trackSelectionParameters.overrides.none { it.key.type == C.TRACK_TYPE_VIDEO }) "● " else "") + "Авто" + (player.videoFormat?.let { f -> "  ·  сейчас " + qLabel(nomH(f.width, f.height)) } ?: "") to {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build(); setMenu(null) }

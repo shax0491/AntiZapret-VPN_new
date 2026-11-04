@@ -20,6 +20,7 @@ data class Item(
     val torrentHash: String? = null, val torrentPoster: String? = null,
     val url: String? = null,           // готовая ссылка на поток (Filmix / онлайн через Lampac)
     val qualities: Map<String, String> = emptyMap(),   // онлайн: качество -> ссылка (1080p, 720p...)
+    val year: String = "",             // дата выхода (гггг-мм-дд или год) для сортировки по году
 )
 
 data class Stream(val index: Int, val type: String, val title: String, val codec: String, val lang: String)
@@ -205,14 +206,21 @@ class Api(ctx: Context) {
     }
 
     /** Лента TMDB как в Lampa: path - запрос вида "movie/popular" или "discover/tv?with_original_language=ko&...". */
+    /** Невышедшее (дата выхода позже сегодняшней) на главной не показываем; без даты — оставляем. */
+    private fun released(o: JSONObject): Boolean {
+        val d = o.optString("release_date").ifEmpty { o.optString("first_air_date") }
+        return d.isEmpty() || d <= java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+    }
+
     suspend fun tmdbList(path: String, serial: Boolean, page: Int = 1): List<Item> = withContext(Dispatchers.IO) {
         val sep = if ('?' in path) "&" else "?"
         val r = http.newCall(Request.Builder().url("$lampac/tmdb/api/3/$path${sep}api_key=${Secrets.TMDB}&language=ru-RU&page=$page&uid=$lampacUid").build()).execute().use { it.body!!.string() }
         val arr = JSONObject(r).getJSONArray("results")
-        (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optString("poster_path").isNotEmpty() }.map {
+        (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optString("poster_path").isNotEmpty() && released(it) }.map {
             Item(it.optString("id"), it.optString("title").ifEmpty { it.optString("name") }, if (serial) "Сериал" else "Фильм", "Trend", "",
                 it.optString("backdrop_path").let { b -> if (b.isNotEmpty()) "$lampac/tmdb/img/t/p/w1280$b?uid=$lampacUid" else "" }, null, 0, 0,
-                it.optDouble("vote_average", 0.0), it.optString("overview"), null, "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid")
+                it.optDouble("vote_average", 0.0), it.optString("overview"), null, "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid",
+                year = it.optString("release_date").ifEmpty { it.optString("first_air_date") })
         }
     }
 
@@ -476,10 +484,10 @@ class Api(ctx: Context) {
     suspend fun trending(): List<Item> = withContext(Dispatchers.IO) {
         val r = http.newCall(Request.Builder().url("$lampac/tmdb/api/3/trending/all/week?api_key=${Secrets.TMDB}&language=ru-RU&uid=$lampacUid").build()).execute().use { it.body!!.string() }
         val arr = JSONObject(r).getJSONArray("results")
-        (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optString("poster_path").isNotEmpty() }.map {
+        (0 until arr.length()).map { arr.getJSONObject(it) }.filter { it.optString("poster_path").isNotEmpty() && released(it) }.map {
             val t = it.optString("title").ifEmpty { it.optString("name") }
             Item(it.optString("id"), t, if (it.optString("media_type") == "tv") "Сериал" else "Фильм", "Trend", "", "", null, 0, 0, it.optDouble("vote_average", 0.0), it.optString("overview"),
-                null, "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid")
+                null, "$lampac/tmdb/img/t/p/w500${it.optString("poster_path")}?uid=$lampacUid", year = it.optString("release_date").ifEmpty { it.optString("first_air_date") })
         }
     }
 
