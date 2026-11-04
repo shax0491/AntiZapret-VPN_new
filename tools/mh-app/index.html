@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Дом · сеть и кино</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg: var(--tg-theme-bg-color, #0f1216);
+  --card: var(--tg-theme-secondary-bg-color, #1a1f27);
+  --text: var(--tg-theme-text-color, #e8ecf1);
+  --hint: var(--tg-theme-hint-color, #8a94a3);
+  --accent: var(--tg-theme-button-color, #3b82f6);
+  --accent-text: var(--tg-theme-button-text-color, #fff);
+  --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --none:#64748b;
+  --line: rgba(127,127,127,.16);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.3 -apple-system,Segoe UI,Roboto,sans-serif;padding:12px 10px 44px}
+.top{display:flex;align-items:baseline;gap:8px;margin:2px 4px 10px}
+h1{font-size:17px;margin:0;flex:1}
+.sub{color:var(--hint);font-size:11px}
+#err{display:none;background:rgba(239,68,68,.15);padding:10px 12px;border-radius:12px;margin-bottom:10px;font-size:13px}
+.sec{color:var(--hint);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:14px 6px 6px}
+
+/* Авто */
+.auto{background:var(--card);border-radius:16px;padding:12px;margin-bottom:6px}
+.auto .hd{display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer}
+.auto .hd .ic{width:30px;height:30px;border-radius:9px}
+.auto .hd .tt{flex:1;min-width:0}
+.auto .hd .tt b{display:block;font-size:15px}
+.auto .hd .tt span{color:var(--hint);font-size:12px}
+.nodes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.node{position:relative;border-radius:11px;padding:8px 10px 9px;background:rgba(127,127,127,.10);cursor:pointer;overflow:hidden;min-width:0}
+.node.sel{outline:2px solid var(--accent);background:rgba(59,130,246,.13)}
+.node .nm{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node .ms{font-size:12px;font-variant-numeric:tabular-nums;margin-top:2px;font-weight:600}
+.g{color:var(--ok)} .y{color:var(--warn)} .r{color:var(--bad)} .n{color:var(--none)}
+.node .bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(127,127,127,.18)}
+.node .bar i{display:block;height:100%}
+.node .bar i.g{background:var(--ok)} .node .bar i.y{background:var(--warn)} .node .bar i.r{background:var(--bad)}
+
+/* карточки-сетка */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{background:var(--card);border-radius:16px;padding:10px 11px;min-width:0}
+.tile.open{grid-column:1/-1}
+.tile .hd{display:flex;align-items:center;gap:9px;cursor:pointer}
+.tile .ic{width:28px;height:28px;border-radius:8px;flex:none;background:rgba(127,127,127,.18);object-fit:contain}
+.tile .tt{flex:1;min-width:0}
+.tile .tt b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .tt span{display:block;color:var(--hint);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--none)}
+.dot.g{background:var(--ok)} .dot.y{background:var(--warn)} .dot.r{background:var(--bad)}
+.tile .bd{display:none;margin-top:10px}
+.tile.open .bd{display:block}
+/* карточки сервисов: 4 в ряд */
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.grid4 .tile{position:relative;padding:9px 5px 8px;border-radius:13px}
+.grid4 .tile .hd{flex-direction:column;gap:5px;text-align:center}
+.grid4 .tile .ic{width:26px;height:26px}
+.grid4 .tile .tt{width:100%}
+.grid4 .tile .tt b{font-size:11px}
+.grid4 .tile .tt span{font-size:9.5px}
+.grid4 .tile .dot{position:absolute;top:6px;right:6px;width:7px;height:7px}
+.grid4 .tile.open{padding:10px 11px}
+.grid4 .tile.open .hd{flex-direction:row;gap:9px;text-align:left}
+.grid4 .tile.open .tt b{font-size:13px} .grid4 .tile.open .tt span{font-size:11.5px}
+.grid4 .tile.open .dot{position:static;width:9px;height:9px}
+.node.autochip .nm{font-weight:600}
+button{border:0;border-radius:11px;padding:10px 14px;background:var(--accent);color:var(--accent-text);font-size:14px;font-weight:600;width:100%;margin-top:8px}
+button:disabled{opacity:.5}
+.ev{font-size:12.5px;padding:7px 4px;border-bottom:1px solid var(--line)}
+.ev:last-child{border:0} .ev .d{color:var(--hint);font-size:11px}
+.toast{position:fixed;left:12px;right:12px;bottom:16px;background:#111d;color:#fff;padding:10px 14px;border-radius:12px;text-align:center;display:none;z-index:9}
+</style>
+</head>
+<body>
+<div class="top"><h1>Дом · сеть и кино</h1><span class="sub" id="sub">загрузка…</span></div>
+<div id="tabs" class="tabs"></div>
+<div id="err"></div>
+<div id="root"></div>
+<div class="toast" id="toast"></div>
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {} }
+const AUTH = "tma " + (tg ? tg.initData : "");
+const open = new Set((() => { try { return JSON.parse(localStorage.getItem("open") || "[]"); } catch (e) { return []; } })());
+const TABS = { home: { label: "Дом", state: "/api/state", select: "/api/select", delay: "/api/delay" },
+               work: { label: "Работа", state: "/api/work/state", select: "/api/work/select", delay: "/api/work/delay" } };
+let tab = (() => { try { return localStorage.getItem("tab") === "work" ? "work" : "home"; } catch (e) { return "home"; } })();
+const states = { home: null, router: null, work: null };
+let busy = false;
+
+const $ = (s) => document.querySelector(s);
+const ESCMAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ESCMAP[c]);
+const cls = (ms) => ms == null ? "n" : ms < 120 ? "g" : ms < 250 ? "y" : "r";
+const fmt = (ms) => ms == null ? "—" : ms + " мс";
+const ago = (t) => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 90 ? s + " с назад" : s < 5400 ? Math.round(s / 60) + " мин назад" : new Date(t * 1000).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+const icon = (u) => u ? `<img class="ic" src="${esc(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : `<span class="ic"></span>`;
+
+function toast(m) { const t = $("#toast"); t.textContent = m; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 2600); }
+function showErr(m) { const e = $("#err"); e.textContent = m; e.style.display = m ? "block" : "none"; }
+
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Authorization": AUTH, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+
+function nodeHtml(n, sel, attrs, maxd) {
+  const w = n.delay ? Math.min(100, n.delay / maxd * 100) : 0;
+  const sub = n.leaf ? `<div class="nm" style="color:var(--hint);font-size:11px">→ ${esc(n.leaf)}</div>` : "";
+  return `<div class="node${sel ? " sel" : ""}" ${attrs}><div class="nm">${esc(n.name)}</div>${sub}<div class="ms ${cls(n.delay)}">${fmt(n.delay)}</div><div class="bar"><i class="${cls(n.delay)}" style="width:${w}%"></i></div></div>`;
+}
+
+let PFX = "";   // приставка id карточек: у «Работы» свои открытые/свёрнутые карточки ("w:")
+function card(id, title, badge, ok, body) {
+  id = PFX + id;
+  const o = open.has(id);
+  return `<div class="auto" style="padding:0"><div class="hd" data-t="${esc(id)}" style="padding:12px;margin:0"><div class="tt"><b>${esc(title)}</b></div><span class="badge ${ok ? "ok" : ""}">${esc(badge)}</span></div><div style="display:${o ? "block" : "none"};padding:0 12px 12px">${body}</div></div>`;
+}
+
+const RT_IC = { __yt: "YouTube.png", __zp: "Final.png", __st: "Speedtest.png", __awg: "Auto.png" };
+function tcard(id, title, badge, ok, body) {
+  const yt = id === "__yt" && states.home && (states.home.groups || []).find((g) => g.name === "YouTube");
+  const ic = yt && yt.icon ? yt.icon : RT_IC[id] ? "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/" + RT_IC[id] : (id.startsWith("__ls_") ? "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Global.png" : "");
+  id = PFX + id;
+  const o = open.has(id);
+  return `<div class="tile${o ? " open" : ""}" data-id="${esc(id)}"><div class="hd" data-t="${esc(id)}">${icon(ic)}<div class="tt"><b>${esc(title)}</b><span>${esc(badge)}</span></div><span class="dot ${ok ? "g" : "r"}"></span></div><div class="bd">${body}</div></div>`;
+}
+function zapretCard(info) {
+  if (!info || !info.zapret) return "";
+  const z = info.zapret, up = z.running, dev = info.policy_devices;
+  const body = `<div class="ev">Состояние: <b class="${up ? "g" : "r"}">${up ? "работает" : "остановлен"}</b>${z.pid ? " (pid " + esc(z.pid) + ")" : ""}</div>`
+    + `<div class="ev">Устройств в политике «Mihomo»: <b>${dev == null ? "—" : esc(dev)}</b>${dev === 0 ? ' <span class="d">— перехват включится, когда добавите устройство в Кинетике</span>' : ""}</div>`
+    + `<div class="ev"><b>TCP 80/443:</b> ${esc(z.tcp || "—")}</div>`
+    + `<div class="ev"><b>QUIC UDP 443:</b> ${esc(z.udp || "—")}</div>`
+    + `<div class="ev"><b>Очередь:</b> NFQUEUE ${esc(z.qnum || "—")} · первые 6 пакетов соединения</div>`
+    + `<div class="ev"><b>Домены (${(z.hosts || []).length}):</b> <span class="d">${esc((z.hosts || []).join(", "))}</span></div>`;
+  return tcard("__zp", "zapret · YouTube", up ? "работает" : "остановлен", up, body);
+}
+
+
+const FLAGS = { DE: "🇩🇪", LV: "🇱🇻", NL: "🇳🇱", FI: "🇫🇮", PL: "🇵🇱", SE: "🇸🇪", FR: "🇫🇷", GB: "🇬🇧", UK: "🇬🇧", US: "🇺🇸", CH: "🇨🇭", AT: "🇦🇹", EE: "🇪🇪", LT: "🇱🇹", TR: "🇹🇷", KZ: "🇰🇿" };
+const awgLabel = (k) => (FLAGS[k.slice(0, 2)] ? FLAGS[k.slice(0, 2)] + " " : "") + k;
+const WSTRATS = [["1","Fake · badseq · SNI google"],["2","Fake · badseq · 8 повторов"],["3","Fake + disorder2 · badseq"],["4","Fake · badseq + md5sig"],["5","Fake · badseq · без подмены SNI"],["6","Fake · badseq · 16 повторов"],["auto","Автоподбор"]];
+const STRATS = [["1","Запрет"],["2","Запрет2 · split"],["3","Запрет2 · seqovl"],["4","Запрет2 · disorder"],["5","Запрет2 · ts"],["auto","Автоподбор"]];
+function failBlock(s) {
+  const f = s.failover || {};
+  const order = (f.order || []).filter((x) => (s.awgs || []).includes(x)).concat((s.awgs || []).filter((x) => !(f.order || []).includes(x)));
+  return `<div class="ev" style="margin-top:10px"><b>Автопереключение:</b> <b class="${f.on ? "g" : "n"}">${f.on ? "включено" : "выключено"}</b>`
+    + `<button data-rt="failover" data-on="${f.on ? 0 : 1}" style="margin-top:6px">${f.on ? "Выключить автопереключение" : "Включить автопереключение"}</button>`
+    + `<div class="d" style="margin-top:6px">Если активный узел не отвечает на пинг 2 минуты подряд, роутер переключается на следующий по порядку (${esc(order.join(" → "))}), проверяет ответ и присылает сообщение. Возврата назад автоматически нет, не чаще раза в 10 минут. Когда выключено, меняется только по вашей кнопке.</div></div>`;
+}
+let LISTS = null;
+const LNAMES = { vpn: ["Через VPN", "домен или IP, который всегда идёт в VPN (например xreal.com)"], direct: ["Напрямую", "домен или IP, который всегда идёт мимо VPN"], block: ["Блок", "домен или IP, который блокируется (реклама, трекеры)"], noproton: ["VPN без Proton", "домен, который идёт через VPN, но с адресом самого сервера, а не Proton: для сайтов, которые не открываются или ругаются на VPN/капчу (например qde.com). Только домены"] };
+function azItems(list, q) {
+  const f = q ? list.filter((x) => x.includes(q.toLowerCase())) : list;
+  return f.slice(0, 80).map((x) => `<span class="ev" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;border:1px solid var(--line);border-radius:10px">${esc(x)}</span>`).join("")
+    + (f.length > 80 ? `<span class="d">… ещё ${f.length - 80}${q ? "" : " — уточните поиском"}</span>` : f.length ? "" : `<span class="d">ничего не найдено</span>`);
+}
+document.addEventListener("input", (e) => {
+  const k = e.target.dataset && e.target.dataset.azf;
+  const box = k && e.target.closest("[data-sec]");
+  const AZ = box && (box.dataset.sec === "work" ? (((states.work || {}).info || {}).lists || {}).az : LISTS && LISTS.az);
+  if (k && box && AZ) box.querySelector("#azl-" + k).innerHTML = azItems(AZ[k] || [], e.target.value.trim());
+});
+function listsBlock(L = LISTS, work = false) {
+  if (!L) return `<div class="sec">Списки</div><div class="auto"><div class="ev"><span class="d">Загрузка…</span></div></div>`;
+  return `<div class="sec">Мои списки (без перезапуска)</div><div class="grid">` + ["vpn", "noproton", "direct", "block"].map((k) => {
+    const items = L[k] || [];
+    const body = `<div class="d" style="margin:0 0 8px">${LNAMES[k][1]}</div>`
+      + `<div style="display:flex;gap:6px"><input id="in-${k}" placeholder="${k === "noproton" ? "example.com" : "example.com или 1.2.3.0/24"}" style="flex:1;min-width:0;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)">`
+      + `<button data-ls="add" data-k="${k}" style="width:auto;margin:0;padding:9px 14px">+</button></div>`
+      + `<div style="margin-top:8px">${items.slice(0, 60).map((x) => `<span class="ev" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;border:1px solid var(--line);border-radius:10px">${esc(x)} <a data-ls="del" data-k="${k}" data-v="${esc(x)}" style="cursor:pointer;color:var(--bad)">✕</a></span>`).join("")}${items.length > 60 ? `<span class="d">… ещё ${items.length - 60}</span>` : ""}</div>`;
+    const az = (L.az || {})[k] || [];
+    const azb = az.length ? `<div class="ev" style="margin-top:10px"><b>Из панели АнтиЗапрет: ${az.length}</b><div class="d">Правятся в панели (страница списков), на роутер приходят каждые 30 минут. Здесь — только просмотр.</div></div>`
+      + `<input data-azf="${k}" placeholder="поиск по списку из панели" style="width:100%;box-sizing:border-box;margin-top:6px;padding:9px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)">`
+      + `<div id="azl-${k}" style="margin-top:8px">${azItems(az, "")}</div>` : "";
+    return tcard("__ls_" + k, LNAMES[k][0], az.length ? `${items.length} своих · ${az.length} из АнтиЗапрета` : String(items.length), items.length + az.length > 0, body + azb);
+  }).join("") + `</div>`;
+}
+async function loadLists() { try { LISTS = await api("/api/rt/lists"); render(); } catch (e) { toast("Списки: " + e.message); } }
+function routerHtml(s, work = false) {
+  const SS = work ? WSTRATS : STRATS;
+  if (!s) return `<div class="ev"><span class="d">Роутер: загрузка…</span></div>`;
+  if (s._err) return `<div class="ev"><b class="r">Роутер не отвечает:</b> ${esc(s._err)}</div>`;
+  let h = tcard("__yt", "YouTube", s.yt_ok ? String(s.yt_code) : "нет ответа", !!s.yt_ok,
+    `<div class="ev">Адрес: <b>${esc(s.yt_ip || "нет адреса")}</b></div>`
+    + `<div class="ev">Ответ: <b class="${s.yt_ok ? "g" : "r"}">${s.yt_code || "нет"}</b> · ${esc(s.yt_time || "—")} с</div>`
+    + `<div class="ev">Путь: <b class="y">через mihomo</b></div>`);
+  if (!work) {
+  const AWGS = (s.awgs || []).map((k) => [k, awgLabel(k)]).concat([["none", "Выкл"]]);
+  h += tcard("__awg", "AWG · АнтиЗапрет", s.awg === "none" ? "выкл" : awgLabel(s.awg), s.awg !== "none",
+    `<div class="nodes">` + AWGS.map(([k, t]) => {
+      const on = k === "none" ? s.awg === "none" : s.awg === k;
+      const ms = on && k !== "none" ? `<div class="ms ${s.awg_ping === "fail" ? "r" : "g"}">${s.awg_ping === "fail" ? "нет ответа" : esc(s.awg_ping)}</div>` : `<div class="ms n">&nbsp;</div>`;
+      return `<div class="node${on ? " sel" : ""}" data-rt="awg" data-n="${k}"><div class="nm">${t}</div>${ms}</div>`;
+    }).join("") + `</div>${failBlock(s)}<div class="ev" style="margin-top:8px"><span class="d">Включён может быть один узел, переключение около 10 секунд. Новый узел появится сам: интерфейс Кинетика с описанием 3.0_ИМЯ_AZ_AWG_…</span></div>`);
+  }
+  h = `<div class="grid">` + h + `</div>` + (work ? listsBlock(s._lists || {}, true) : listsBlock());
+  if (!work && LISTS === null) { LISTS = false; loadLists(); }
+  return h;
+}
+
+function workRt(info) {
+  const rt = info.rt || {}, code = parseInt(rt.yt_code || "0", 10) || 0;
+  const scores = (rt.zapret_scores || "").split(" ").filter((x) => x.split(":").length === 3).map((x) => { const [n, ok, ms] = x.split(":").map(Number); return { n, ok, ms }; });
+  return { zapret: rt.zapret === "on", pkts: rt.zapret_pkts, yt_ip: rt.yt_ip, yt_via: rt.yt_via, yt_code: code, yt_ok: code >= 200 && code < 400,
+           yt_time: rt.yt_time, strategy: rt.zapret_strategy || "1", scores, awgs: [], awg: "none", _lists: info.lists || {} };
+}
+
+function renderSec(sec) {
+  const s = states[sec];
+  PFX = sec === "work" ? "w:" : "";
+  if (!s || !s.auto) { PFX = ""; return `<div class="ev"><span class="d">${esc(states[sec + "_err"] || "загрузка…")}</span></div>`; }
+  const maxd = Math.max(300, ...s.auto.nodes.map((n) => n.delay || 0));
+  let h = "";
+  const autoNow = s.auto.now || "—";
+  let ab = `<div class="nodes"><div class="node autochip btn-unpin-a${s.auto.fixed ? "" : " sel"}"><div class="nm">⚡ Авто</div><div class="ms n">${s.auto.fixed ? "нажмите, чтобы снять 📌" : "сам выбирает"}</div></div>` + s.auto.nodes.map((n) => nodeHtml(n, n.name === s.auto.now, `data-g="${esc(s.auto.name)}" data-n="${esc(n.name)}"`, maxd)).join("") + `</div>`;
+  ab += (s.auto.fixed ? `<div class="ev" style="margin:10px 0 0">📌 Закреплён: <b>${esc(s.auto.fixed)}</b> <button id="btn-unpin" style="margin-left:8px">Вернуть автовыбор</button></div>` : "");
+  ab += `<button id="btn-delay">Замерить задержки сейчас</button>`;
+  h += card("__auto", s.auto.name, autoNow, true, ab);
+  for (const g of s.groups.filter((x) => x.type === "URLTest" || x.type === "Fallback")) {
+    const mx2 = Math.max(300, ...g.options.map((x) => x.delay || 0));
+    const b2 = `<div class="nodes"><div class="node autochip btn-unpin-g${g.fixed ? "" : " sel"}" data-ug="${esc(g.name)}"><div class="nm">⚡ Авто</div><div class="ms n">${g.fixed ? "нажмите, чтобы снять 📌" : "сам выбирает"}</div></div>`
+      + g.options.map((x) => nodeHtml(x, x.name === g.now, `data-g="${esc(g.name)}" data-n="${esc(x.name)}"`, mx2)).join("") + `</div>`
+      + (g.fixed ? `<div class="ev" style="margin:10px 0 0">📌 Закреплён: <b>${esc(g.fixed)}</b> · нажмите «⚡ Авто», чтобы вернуть автовыбор</div>` : "");
+    h += card("__ag_" + g.name, g.name, g.now_leaf || g.now || "—", true, b2);
+  }
+  if (sec === "work") h += `<div class="sec">Роутер · YouTube</div>` + (s.info && s.info.rt ? routerHtml(workRt(s.info), true) : `<div class="ev"><span class="d">Агент рабочего роутера ещё не прислал состояние</span></div>`);
+  if (sec === "home") h += `<div class="sec">Роутер · YouTube</div>` + routerHtml(states.router);
+  h += `<div class="sec">Карточки</div><div class="grid4">`;
+  for (const g of s.groups.filter((x) => x.type !== "URLTest" && x.type !== "Fallback")) {
+    const id = PFX + g.name, o = open.has(id), mx = Math.max(300, ...g.options.map((x) => x.delay || 0));
+    h += `<div class="tile${o ? " open" : ""}" data-id="${esc(id)}"><div class="hd" data-t="${esc(id)}">${icon(g.icon)}<div class="tt"><b>${esc(g.name)}</b><span>${esc(g.now_leaf || g.now || "—")}</span></div><span class="dot ${cls(g.now_delay)}"></span></div>`;
+    const pin = (g.type === "URLTest" || g.type === "Fallback") ? (g.fixed ? `<div class="ev" style="margin-top:8px">📌 Закреплён: <b>${esc(g.fixed)}</b> <button class="btn-unpin-g" data-g="${esc(g.name)}" style="margin-left:8px">Вернуть автовыбор</button></div>` : `<div class="ev" style="margin-top:8px"><span class="d">Автовыбор · выбранный сервер можно закрепить</span></div>`) : "";
+    const isAuto = g.type === "URLTest" || g.type === "Fallback";
+    const chip = isAuto ? `<div class="node autochip btn-unpin-g${g.fixed ? "" : " sel"}" data-ug="${esc(g.name)}"><div class="nm">⚡ Авто</div><div class="ms n">${g.fixed ? "нажмите, чтобы снять 📌" : "сам выбирает"}</div></div>` : "";
+    h += `<div class="bd"><div class="nodes">` + chip + g.options.map((x) => nodeHtml(x, x.name === g.now, `data-g="${esc(g.name)}" data-n="${esc(x.name)}"`, mx)).join("") + `</div>${pin}</div></div>`;
+  }
+  h += `</div>`;
+  const ev = s.history.length ? s.history.map((e) => `<div class="ev">${e.manual ? "✋ " : "↪️ "}<b>${esc(e.group)}</b>: ${esc(e.from || "—")} → ${esc(e.to)}<div class="d">${ago(e.t)}${e.manual ? " · вручную" : ""}</div></div>`).join("") : `<div class="ev"><span class="d">пока без переключений</span></div>`;
+  h += `<div class="sec">События</div><div class="auto" style="padding:6px 10px">${ev}</div>`;
+  PFX = "";
+  return h;
+}
+
+// два сворачиваемых блока на одной странице: «Дом» (по умолчанию открыт) и «Работа» (по умолчанию свёрнут)
+const SECS = { home: { title: "🏠 Дом", key: "__sec_home_c", def: true }, work: { title: "🏢 Работа", key: "__sec_work_o", def: false } };
+const secOpen = (k) => SECS[k].def ? !open.has(SECS[k].key) : open.has(SECS[k].key);
+function secBadge(k) {
+  const s = states[k];
+  if (!s) return states[k + "_err"] ? "ошибка" : "загрузка…";
+  const now = s.auto ? (s.auto.now || "—") : "—";
+  if (k === "work" && s.age > 90) return "нет связи с роутером " + Math.round(s.age / 60) + " мин · " + now;
+  return now;
+}
+function render() {
+  let h = "";
+  for (const k of Object.keys(SECS)) {
+    const o = secOpen(k), s = states[k], ok = !!s && !(k === "work" && s.age > 90);
+    const info = k === "work" && s ? `<div class="ev" style="margin:-4px 2px 8px"><span class="d">отчёт роутера ${s.age} с назад${s.info && s.info.uptime ? " · аптайм " + esc(s.info.uptime) : ""}${s.info && s.info.mem ? " · память " + esc(s.info.mem) : ""}</span></div>` : "";
+    h += `<div data-sec="${k}" style="margin-bottom:10px"><div class="auto" style="padding:0;margin-bottom:8px"><div class="hd" data-t="${SECS[k].key}" style="padding:12px;margin:0"><div class="tt"><b style="font-size:17px">${SECS[k].title}</b><span>${esc(secBadge(k))}</span></div><span class="dot ${ok ? "g" : "r"}"></span><span style="color:var(--hint);margin-left:6px">${o ? "▾" : "▸"}</span></div></div>`
+      + (o ? info + renderSec(k) : "") + `</div>`;
+  }
+  $("#root").innerHTML = h;
+  const s = states.home || states.work;
+  if (s) $("#sub").textContent = "v" + (s.version || "").replace(/^v/, "") + " · " + new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+
+function drawTabs() { $("#tabs").style.display = "none"; }   // вкладок больше нет - блоки «Дом» и «Работа»
+
+async function loadOne(k) {
+  try { states[k] = await api(TABS[k].state); states[k + "_err"] = ""; }
+  catch (e) {
+    states[k] = null;
+    if (e.message === "unauthorized") showErr("Доступ запрещён: откройте приложение из Telegram под своим аккаунтом.");
+    states[k + "_err"] = (k === "work" ? "Рабочий роутер: " : "") + e.message;
+    return;
+  }
+  if (k === "home") api("/api/rt/state").then((r) => { states.router = r; render(); }).catch((e) => { states.router = { _err: e.message }; render(); });
+  if (k === "home" && states.home && states.home.auto && !states.home.auto.nodes.some((n) => n.delay) && !window._dl) { window._dl = true; api(TABS.home.delay, {}).then(() => load()).catch(() => {}); }
+}
+async function load() {
+  if (busy) return;
+  await Promise.all(Object.keys(SECS).filter((k) => secOpen(k) || !states[k]).map(loadOne));
+  render();
+}
+
+document.addEventListener("click", async (ev) => {
+  const se = ev.target.closest("[data-sec]");
+  if (se) tab = se.dataset.sec;   // блок, из которого нажали, задаёт «Дом»/«Работа» для остальной логики
+  const tb = ev.target.closest(".tabbtn");
+  if (tb) { tab = tb.dataset.tab; try { localStorage.setItem("tab", tab); } catch (e) {} showErr(""); drawTabs(); render(); load(); return; }
+  const lsb = ev.target.closest("[data-ls]");
+  if (lsb && tab === "work") {
+    const k = lsb.dataset.k; let v = lsb.dataset.v;
+    if (lsb.dataset.ls === "add") { v = (lsb.closest("[data-sec]").querySelector("#in-" + k).value || "").trim(); if (!v) return; }
+    busy = true;
+    try { await api("/api/work/rt", { cmd: "list " + lsb.dataset.ls + " " + k + " " + v }); toast("Отправлено роутеру · применится за пару секунд"); }
+    catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; setTimeout(load, 3500); return;
+  }
+  if (lsb && tab === "home") {
+    const k = lsb.dataset.k; let v = lsb.dataset.v;
+    if (lsb.dataset.ls === "add") { v = (lsb.closest("[data-sec]").querySelector("#in-" + k).value || "").trim(); if (!v) return; }
+    busy = true; toast("Сохраняю…");
+    try { LISTS = await api("/api/rt/list", { action: lsb.dataset.ls, list: k, value: v }); render(); toast(lsb.dataset.ls === "add" ? "Добавлено" : "Удалено"); }
+    catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; return;
+  }
+  const rb = ev.target.closest("[data-rt]");
+  if (rb && tab === "work") {
+    if (rb.dataset.rt === "strategy" && rb.dataset.n !== "auto" && rb.classList.contains("sel")) return;
+    const cmd = rb.dataset.rt === "zapret" ? "zapret " + (rb.dataset.on === "1" ? "on" : "off") : rb.dataset.rt === "strategy" ? "strategy " + rb.dataset.n : "";
+    if (!cmd) return;
+    busy = true;
+    try { await api("/api/work/rt", { cmd }); toast(rb.dataset.n === "auto" ? "Автоподбор на роутере ~3 минуты…" : "Отправлено роутеру · применится за пару секунд"); }
+    catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; setTimeout(load, rb.dataset.n === "auto" ? 200000 : 4000); return;
+  }
+  if (rb && tab === "home") {
+    if ((rb.dataset.rt === "awg" || (rb.dataset.rt === "strategy" && rb.dataset.n !== "auto")) && rb.classList.contains("sel")) return;
+    busy = true; toast(rb.dataset.n === "auto" ? "Автоподбор идёт ~2 минуты…" : "Выполняю…");
+    try {
+      states.router = rb.dataset.rt === "zapret" ? await api("/api/rt/zapret", { on: rb.dataset.on === "1" })
+        : rb.dataset.rt === "strategy" ? await api("/api/rt/strategy", { name: rb.dataset.n })
+        : rb.dataset.rt === "failover" ? await api("/api/rt/failover", { on: rb.dataset.on === "1" })
+        : await api("/api/rt/awg", { name: rb.dataset.n });
+      render(); toast("Готово");
+    } catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; return;
+  }
+  const hd = ev.target.closest(".hd[data-t]");
+  if (hd) {
+    const id = hd.dataset.t;
+    open.has(id) ? open.delete(id) : open.add(id);
+    try { localStorage.setItem("open", JSON.stringify([...open])); } catch (e) {}
+    render();
+    if (id.startsWith("__sec_")) load();   // блок развернули - свежие данные
+    return;
+  }
+  const T = TABS[tab];
+  const md = ev.target.closest(".node[data-mode]");
+  if (md) {
+    if (!md.classList.contains("sel")) {
+      busy = true;
+      try { const r = await api(tab === "work" ? "/api/work/mode" : "/api/mode", { mode: md.dataset.mode }); toast((md.dataset.mode === "awg2" ? "AWG 2.0" : "AWG 3.1") + ": карточек " + r.changed + (tab === "work" ? " · применится за пару секунд" : "")); }
+      catch (e) { toast("Ошибка: " + e.message); }
+      busy = false; setTimeout(load, tab === "work" ? 3500 : 700);
+    }
+    return;
+  }
+  const node = ev.target.closest(".node[data-g]");
+  if (node && !node.classList.contains("sel")) {
+    const g = node.dataset.g, n = node.dataset.n, st = states[tab];
+    busy = true;
+    try {
+      await api(T.select, { group: g, name: n });
+      if (tab === "work") toast("Команда отправлена роутеру · применится за пару секунд");
+      else {
+        if (g === st.auto.name) { st.auto.now = n; st.auto.fixed = n; } else { const gg = st.groups.find((x) => x.name === g); if (gg) gg.now = n; } render();
+        toast("«" + g + "» → " + n);
+      }
+    } catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; setTimeout(load, tab === "work" ? 3500 : 700);
+    return;
+  }
+  const ug = ev.target.closest(".btn-unpin-g");
+  if (ug && tab === "home") {
+    if (ug.classList.contains("sel")) return;
+    busy = true;
+    try { await api(T.select, { group: ug.dataset.g || ug.dataset.ug, name: "__auto" }); toast("Автовыбор включён"); } catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; setTimeout(load, 700); return;
+  }
+  const ua = ev.target.closest(".btn-unpin-a");
+  if (ev.target.id === "btn-unpin" || (ua && !ua.classList.contains("sel"))) {
+    const a = states[tab].auto.name; busy = true;
+    try { await api(T.select, { group: a, name: "__auto" }); toast(tab === "work" ? "Команда отправлена роутеру · применится за пару секунд" : "Автовыбор включён"); }
+    catch (e) { toast("Ошибка: " + e.message); }
+    busy = false; setTimeout(load, tab === "work" ? 3500 : 700); return;
+  }
+  if (ev.target.id === "btn-delay") {
+    const b = ev.target; b.disabled = true; b.textContent = "Замеряю…";
+    try { await api(T.delay, {}); toast(tab === "work" ? "Замер запрошен · результат через ~8 с" : "Готово"); } catch (e) { toast(e.message); }
+    setTimeout(() => { b.disabled = false; load(); }, tab === "work" ? 8000 : 300);
+  }
+});
+
+window.addEventListener("error", (e) => toast("JS: " + e.message));
+window.addEventListener("unhandledrejection", (e) => toast("Ошибка: " + (e.reason && e.reason.message || e.reason)));
+drawTabs(); load();
+setInterval(() => { if (!document.hidden) load(); }, 15000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+
+// флаги-эмодзи не рисуются в Windows: заменяем на картинки Twemoji
+const FLAG_RE = /[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+function flagify() {
+  const w = document.createTreeWalker($("#root"), NodeFilter.SHOW_TEXT), list = [];
+  while (w.nextNode()) { FLAG_RE.lastIndex = 0; if (FLAG_RE.test(w.currentNode.nodeValue)) list.push(w.currentNode); }
+  for (const n of list) {
+    const frag = document.createDocumentFragment(); let last = 0; const t = n.nodeValue;
+    for (const m of t.matchAll(FLAG_RE)) {
+      frag.append(t.slice(last, m.index));
+      const img = document.createElement("img");
+      img.src = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/" + [...m[0]].map((c) => c.codePointAt(0).toString(16)).join("-") + ".svg";
+      img.alt = m[0]; img.style.cssText = "height:1.1em;width:1.4em;vertical-align:-0.2em;margin-right:2px";
+      frag.append(img); last = m.index + m[0].length;
+    }
+    frag.append(t.slice(last)); n.replaceWith(frag);
+  }
+}
+new MutationObserver(() => { flagify(); }).observe($("#root"), { childList: true });
+</script>
+</body>
+</html>

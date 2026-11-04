@@ -263,7 +263,7 @@ def main():
     if m: notify("⚠️ " + m)
     if d is not None:
         code = int(d.get("yt_code", "0") or 0)
-        m = upd("yt", not (200 <= code < 400), "YouTube не открывается" + ("" if d.get("zapret") == "on" else " (запрет выключен)"), "YouTube снова открывается")
+        m = upd("yt", not (200 <= code < 400), "YouTube не открывается", "YouTube снова открывается")
         if m: notify("⚠️ " + m)
         m = upd("mh", d.get("mihomo") == "off", "mihomo не работает", "mihomo снова работает")
         if m: notify("⚠️ " + m)

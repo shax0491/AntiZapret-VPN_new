@@ -1,6 +1,6 @@
 # mihomo на роутере (Netcraze Ultra). Устройства из /opt/etc/mihomo/tproxy-clients: TCP и DNS перехватываются в mihomo
 # (nat REDIRECT, /opt/etc/ndm/netfilter.d/90-mihomo.sh). Серверы - ваши AntiZapret по AWG3 (клиент AT_Router_mihomo).
-# YouTube - zapret роутера. Карточки: по умолчанию «Авто — самый быстрый» (url-test раз в 30 мин, lazy), страну можно закрепить. Чтобы не держать из дома
+# YouTube - через «Авто». Карточки: по умолчанию «Авто — самый быстрый» (url-test раз в 30 мин, lazy), страну можно закрепить. Чтобы не держать из дома
 # 4 VPN-туннеля разом: без persistent-keepalive (туннель поднимается при трафике), проверка серверов раз в 30 мин и
 # только у используемых групп (lazy).
 mixed-port: 7890
@@ -55,7 +55,7 @@ dns:
   proxy-server-nameserver: [62.76.76.62, 62.76.62.76]
   nameserver-policy:
     "+.ru,+.su,+.рф,geosite:category-ru,geosite:ru-available-only-inside": [62.76.76.62, 62.76.62.76, 77.88.8.8]
-    # YouTube - настоящие адреса у MSK-IX: он идёт напрямую через zapret на роутере
+    # YouTube - настоящие адреса у MSK-IX: адрес нужен только для доменных правил, сам трафик идёт через VPN
     "+.youtube.com,+.googlevideo.com,+.ytimg.com,+.ggpht.com,+.youtu.be,+.youtube-nocookie.com,+.youtubekids.com,+.google.ru": [62.76.76.62, 62.76.62.76]
     "rule-set:az-include,az-full,ru-blocked,my-vpn": ["1.1.1.1#Авто — самый быстрый"]
     "geosite:ru-blocked,refilter,antifilter-download-community,openai,anthropic,category-ai-!cn,telegram,discord,instagram,facebook,twitter,whatsapp,tiktok,netflix,spotify,twitch,google,category-porn": ["1.1.1.1#Авто — самый быстрый"]
@@ -68,9 +68,8 @@ proxy-providers:
     health-check: {enable: true, url: "http://www.gstatic.com/generate_204", interval: 600}
 proxies:
   - {"name": "Напрямую (провайдер)", "type": "direct"}
-  - {"name": "Zapret — напрямую", "type": "direct"}
 proxy-groups:
-  - {"name": "Все серверы — проверка", "type": "select", "proxies": ["Напрямую (провайдер)", "Zapret — напрямую"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Speedtest.png", "use": ["az-vless"]}
+  - {"name": "Все серверы — проверка", "type": "select", "proxies": ["Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Speedtest.png", "use": ["az-vless"]}
   - {"name": "Авто — самый быстрый", "type": "url-test", "use": ["az-vless"], "filter": "Proton", "url": "http://www.gstatic.com/generate_204", "interval": 300, "tolerance": 10, "lazy": false, "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Auto.png", "max-failed-times": 2}
   - {"name": "Авто — без Proton", "type": "url-test", "use": ["az-vless"], "filter": "прямой", "url": "http://www.gstatic.com/generate_204", "interval": 300, "tolerance": 10, "lazy": false, "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Auto.png"}
   - {"name": "DE прямой (для сайтов с Cloudflare)", "type": "url-test", "use": ["az-vless"], "filter": "DE[0-9] [|] VLESS прямой", "url": "http://www.gstatic.com/generate_204", "interval": 300, "tolerance": 10, "lazy": false, "hidden": true}
@@ -82,7 +81,7 @@ proxy-groups:
   - {"name": "Заблокированное в РФ", "type": "select", "proxies": ["Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png"}
   - {"name": "Исключения (без Proton)", "type": "select", "proxies": ["Фикс. выход (стабильный IP)", "Авто — без Proton", "Напрямую (провайдер)", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Bypass.png"}
   - {"name": "Фикс. выход (стабильный IP)", "type": "fallback", "use": ["az-vless"], "filter": "(DE2|DE4|DE1|NL2) \\| VLESS прямой", "url": "http://www.gstatic.com/generate_204", "interval": 120, "lazy": false, "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Direct.png"}
-  - {"name": "YouTube", "type": "select", "proxies": ["Zapret — напрямую", "Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png"}
+  - {"name": "YouTube", "type": "select", "proxies": ["Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png"}
   - {"name": "Telegram", "type": "select", "proxies": ["Авто — без Proton", "Авто — самый быстрый", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Telegram.png"}
   - {"name": "ИИ — ChatGPT и Claude", "type": "select", "proxies": ["Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/ChatGPT.png"}
   - {"name": "Discord", "type": "select", "proxies": ["Авто — самый быстрый", "Авто — без Proton", "🇩🇪 DE2", "🇩🇪 DE1", "🇩🇪 DE4", "🇳🇱 NL2", "🇱🇻 LV1", "Напрямую (провайдер)"], "icon": "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Discord.png"}

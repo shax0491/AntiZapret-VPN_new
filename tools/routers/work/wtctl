@@ -1,0 +1,88 @@
+#!/bin/sh
+# Рабочий роутер для Mini App (вызывает агент mh-agent.sh по командам с DE3; SSH снаружи сюда нет):
+#   wtctl status | zapret on|off | strategy 1|2|3|4|5|6|auto | list items vpn|direct|block | list add|del vpn|direct|block ЗНАЧЕНИЕ
+export PATH=/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin
+M=/opt/etc/mihomo; S98=/opt/etc/init.d/S98nfqws; STF=$M/wtctl.state
+API=http://127.0.0.1:9190
+sec() { grep -oE '^secret: "[^"]+"' $M/config.yaml | cut -d'"' -f2; }
+get() { grep -E "^$1=" $STF 2>/dev/null | head -1 | cut -d= -f2-; }
+put() { touch $STF; grep -vE "^$1=" $STF > $STF.t; echo "$1=$2" >> $STF.t; mv $STF.t $STF; }
+
+# стратегии - файлы /opt/zapret/strategies/N.args (как дома: 1 nfqws, 2-5 nfqws2; 6 - прежняя рабочая nfqws), выбранная - /opt/zapret/strategy
+Z=/opt/zapret
+yt() {  # WT-MEASURE: одна проверка YouTube с роутера через провайдера; время БЕЗ DNS (DoH на слабом MIPS добавляет 0.3-0.5 с и пугало цифрой 900)
+	# адрес через Cloudflare DoH, как у mihomo: DNS роутера на работе перехватывает Fortinet / может держать старый кэш
+	curl -s -m 8 -x http://127.0.0.1:7890 -o /dev/null -w '%{http_code} %{time_total} %{remote_ip} %{time_namelookup}' https://www.youtube.com/ 2>/dev/null | awk '{ t=$2-$4; if (t<0) t=$2; printf "%s %.3f %s", $1, t, $3 }'
+}
+
+stop_all() { $S98 stop >/dev/null 2>&1; kill $(pidof nfqws) $(pidof nfqws2) 2>/dev/null; sleep 1; }
+hook() { type=iptables table=mangle sh /opt/etc/ndm/netfilter.d/91-nfqws.sh >/dev/null 2>&1; }
+apply() {  # $1 = номер стратегии
+	[ -f $Z/strategies/$1.args ] || return 1
+	echo "$1" > $Z/strategy; stop_all; $S98 start >/dev/null 2>&1; sleep 2; hook; put strategy $1
+}
+
+score() {  # $1 = стратегия: 5 проверок сервера видео googlevideo -> "ok:ms" (как rtctl дома). Адрес берём один раз через DoH (WT-MEASURE),
+	# дальше --resolve: в цифрах только TLS через nfqws, без DNS и без разброса DoH
+	[ -n "$GVIP" ] || GVIP=$(curl -s -o /dev/null -m8 --doh-url https://1.1.1.1/dns-query -w '%{remote_ip}' https://redirector.googlevideo.com/ 2>/dev/null)
+	ok=0; sum=0
+	for i in 1 2 3 4 5; do
+		r=$(curl -s -o /dev/null -m5 --resolve redirector.googlevideo.com:443:$GVIP -w '%{http_code} %{time_total}' https://redirector.googlevideo.com/ 2>/dev/null)
+		set -- $r
+		[ -n "$1" ] && [ "$1" != 000 ] && { ok=$((ok+1)); sum=$((sum + $(echo "$2" | awk '{printf "%d", $1*1000}'))); }
+	done
+	[ $ok -gt 0 ] && echo "$ok:$((sum/ok))" || echo "0:0"
+}
+
+case "$1" in
+status)
+	pid=$(pidof nfqws nfqws2)
+	pk=$(iptables -t mangle -L NFQWS -v -x 2>/dev/null | awk 'NR>2{s+=$1} END{print s+0}')
+	set -- $(yt)
+	echo "zapret=$([ -n "$pid" ] && echo on || echo off)"
+	echo "zapret_pkts=$pk"
+	echo "zapret_strategy=$(cat $Z/strategy 2>/dev/null || echo 1)"
+	echo "zapret_scores=$(get scores)"
+	echo "yt_code=${1:-0}"; echo "yt_time=${2:-}"; echo "yt_ip=${3:-}"
+	echo "yt_via=tunnel"
+	echo "mihomo=$(pidof mihomo >/dev/null && echo on || echo off)"
+	;;
+zapret|strategy)
+	echo "zapret удалён"; exit 0 ;;
+zapret_old)
+	case "$2" in on) rm -f /opt/etc/zapret.off; $S98 start >/dev/null 2>&1 ;; off) touch /opt/etc/zapret.off; $S98 stop >/dev/null 2>&1 ;; *) exit 2 ;; esac
+	echo "ок: zapret $2" ;;
+strategy)
+	if [ "$2" = auto ]; then
+		sc=""; best=""; bok=-1; bms=999999
+		for n in 1 2 3 4 5 6; do apply $n; r=$(score); sc="$sc $n:$r"
+			ok=${r%%:*}; ms=${r##*:}
+			if [ $ok -gt $bok ] || { [ $ok -eq $bok ] && [ $ms -lt $bms ]; }; then best=$n; bok=$ok; bms=$ms; fi
+		done
+		apply $best; put scores "${sc# }"; echo "ок: автоподбор -> $best"
+		# WT-NOTIFY: итог подбора в Telegram-бот (как у сторожа): лучшая стратегия и замеры по всем пяти
+		det=""; for x in $sc; do n=${x%%:*}; r=${x#*:}; okc=${r%%:*}; msx=${r##*:}
+			if [ "$okc" -gt 0 ]; then det="$det
+  ${n}: $okc/5, $msx мс"; else det="$det
+  ${n}: не работает (0/5)"; fi; done
+		sh $M/watch.sh test "🛡 Запрет YouTube (работа): автоподбор — выбрана стратегия $best ($bms мс, ответов $bok/5)$det" >/dev/null 2>&1
+	else
+		apply "$2" || exit 2; echo "ок: стратегия $2"
+	fi ;;
+list)
+	case "$3" in vpn|direct|block|noproton) ;; *) exit 2 ;; esac
+	D=$M/providers/my-$3.txt; I=$M/providers/my-$3-ips.txt; touch $D $I
+	case "$2" in
+	items) sed 's/^+\.//' $D; cat $I ;;
+	add|del)
+		v=$(echo "$4" | tr 'A-Z' 'a-z' | sed -E 's#^https?://##; s#/.*##; s/^\+\.//')
+		if echo "$v" | grep -qE '^[0-9]+(\.[0-9]+){3}(/[0-9]+)?$'; then [ $3 = noproton ] && { echo "для «без Proton» только домены"; exit 2; }; F=$I; echo "$v" | grep -q / || v="$v/32"; P=my-$3-ips
+		elif echo "$v" | grep -qE '^[a-z0-9-]+(\.[a-z0-9-]+)+$'; then F=$D; v="+.$v"; P=my-$3
+		else echo "не похоже на домен или IP"; exit 2; fi
+		grep -vxF "$v" $F > $F.t; [ "$2" = add ] && echo "$v" >> $F.t; mv $F.t $F
+		curl -s -o /dev/null -X PUT -H "Authorization: Bearer $(sec)" $API/providers/rules/$P
+		echo "ок: $2 $3 $v" ;;
+	*) exit 2 ;;
+	esac ;;
+*) echo "usage: wtctl status | zapret on|off | strategy 1-6|auto | list items|add|del vpn|direct|block|noproton [значение]"; exit 2 ;;
+esac
