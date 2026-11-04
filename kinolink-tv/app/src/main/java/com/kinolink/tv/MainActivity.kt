@@ -757,11 +757,6 @@ fun HomeTab(api: Api, reload: Int, onOpen: (Item) -> Unit, onFeed: (FeedDef) -> 
                             }
                             Row(Modifier.align(Alignment.BottomEnd).padding(end = LocalPad.current, bottom = 34.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Chip("Смотреть", true) { onOpen(b) }
-                                if (b.type == "Movie" || b.type == "Series") {
-                                    var fav by remember(b.id) { mutableStateOf(false) }
-                                    LaunchedEffect(b.id) { fav = api.isFavorite(b.id) }
-                                    Chip(if (fav) "★ В избранном" else "☆ В избранное") { scope.launch { runCatching { api.setFavorite(b.id, !fav); fav = !fav } } }
-                                }
                             }
                         }
                     }
@@ -1668,16 +1663,16 @@ fun OnlineScreen(api: Api, title: String, url: String, onPlay: (PlayReq) -> Unit
                 LaunchedEffect(node) { delay(150); runCatching { fr.requestFocus() } }
                 val serialUi = item != null && (node.type == "season" || node.type == "episode")
                 if (node.rows.isNotEmpty()) Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    if (serialUi) Column(Modifier.width(if (LocalCompact.current) 150.dp else 300.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (serialUi) Column(Modifier.width(if (LocalCompact.current) 130.dp else 240.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         val bd = when {
-                            item!!.backdropId.startsWith("http") -> item.backdropId
-                            item.torrentPoster != null -> item.torrentPoster
-                            item.backdropId.isNotEmpty() -> api.img(item.backdropId, "Backdrop", 780)
+                            item!!.torrentPoster != null -> item.torrentPoster!!
                             item.imgId.isNotEmpty() -> api.img(item.imgId, "Primary", 600)
+                            item.backdropId.startsWith("http") -> item.backdropId
                             else -> ""
                         }
-                        if (bd.isNotEmpty()) AsyncImage(bd, null, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
+                        if (bd.isNotEmpty()) AsyncImage(bd, null, Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
                         Text(item.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Text(listOfNotNull(item.year.take(4).ifEmpty { null }, if (item.rating > 0) "★ %.1f".format(item.rating) else null).joinToString("  "), color = Yellow, fontSize = 15.sp)
                         if (item.overview.isNotEmpty()) Text(item.overview, color = Color(0xFFB8BECC), fontSize = 14.sp)
                     }
                     if (node.type == "episode" && item != null) Glass(0, Modifier.weight(1f).fillMaxHeight()) {
