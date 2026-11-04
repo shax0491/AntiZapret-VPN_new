@@ -353,10 +353,23 @@ class Api(ctx: Context) {
         return (0 until a.length()).mapNotNull { i ->
             runCatching {
                 val o = a.getJSONObject(i); val h = o.getString("h"); val idx = o.optInt("i", 1)
-                Item("$h:$idx", o.getString("t"), o.optString("s"), "Torrent", "", "", null, o.optLong("p") * 10_000, o.optLong("d") * 10_000, 0.0, "",
+                Item("$h:$idx", humanTitle(o.getString("t")), o.optString("s"), "Torrent", "", "", null, o.optLong("p") * 10_000, o.optLong("d") * 10_000, 0.0, "",
                     h, o.optString("po").ifEmpty { null }, "$ts/stream?link=$h&index=$idx&play")
             }.getOrNull()
         }
+    }
+
+    /** Из «Name.2020.1080p.WEB-DL.x264-GRP.mkv» или пути с каталогами делаем «Name (2020)»; нормальные названия не трогаем. */
+    fun humanTitle(t: String): String {
+        var s = t.substringAfterLast('/').substringAfterLast('\\')
+        s = s.replace(Regex("(?i)\\.(mkv|mp4|avi|ts|m2ts|mov)$"), "")
+        val tech = Regex("(?i)(1080p|720p|2160p|web-?dl|bdrip|x26[45]|hdtv)")
+        if (!Regex("[._]").containsMatchIn(s) || (s.contains(' ') && !tech.containsMatchIn(s))) return s.trim()
+        s = s.replace('.', ' ').replace('_', ' ')
+        val m = Regex("(?i)\\b((19|20)\\d\\d)\\b|\\b(2160p|1080p|720p|480p|web-?dl|bdrip|hdtv|x26[45]|hevc)\\b").find(s)
+        val name = (if (m != null && m.range.first > 1) s.substring(0, m.range.first) else s).trim()
+        val year = m?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
+        return if (year != null) "$name ($year)" else name
     }
 
     fun saveHistory(it: Item, posMs: Long, durMs: Long) {
