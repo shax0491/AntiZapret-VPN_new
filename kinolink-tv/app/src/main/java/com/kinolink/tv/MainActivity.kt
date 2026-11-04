@@ -476,12 +476,21 @@ fun Row(title: String, api: Api, items: List<Item>, onFocus: (Item) -> Unit, onC
     val al by animateFloatAsState(if (vis) 1f else 0f, fxSpec(550), label = "ra")
     val off by animateDpAsState(if (vis) 0.dp else 28.dp, fxSpec(550), label = "ro")
     Column(Modifier.padding(vertical = 8.dp).offset(y = off).alpha(al)) {
-        Row(Modifier.fillMaxWidth().padding(start = LocalPad.current, end = LocalPad.current, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = LocalPad.current, end = LocalPad.current / 3, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             if (onMore != null) Chip("Ещё ›") { onMore() }   // полный экран ленты: сетка + сортировка
         }
         TvLazyRow(contentPadding = PaddingValues(horizontal = LocalPad.current), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             items(items) { PosterCard(api, it, onFocus, onClick) }
+            // в конце ряда — карточка «Ещё», когда ряд долистан
+            if (onMore != null) item {
+                val w = if (LocalCompact.current) 118.dp else 150.dp
+                Focusable(Modifier.width(w).height(w * 1.5f), onClick = { onMore() }) {
+                    Box(Modifier.fillMaxSize().background(Bg2), contentAlignment = Alignment.Center) {
+                        Text("Ещё ›", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
