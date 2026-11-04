@@ -857,33 +857,6 @@ fun DetailScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit) {
     // «Онлайн»: сразу опрашиваем все источники по названию и показываем только те, где что-то нашлось, с лучшим разрешением
     var onl by remember(item.id) { mutableStateOf<Map<String, OnlRes?>>(emptyMap()) }
     var probed by remember(item.id) { mutableStateOf(false) }
-    LaunchedEffect(panel == "online", balOk) {
-        if (panel != "online" || !balOk || probed) return@LaunchedEffect
-        probed = true
-        launch { delay(12000); onl = balancers.associate { b -> b.first to (if (onl.containsKey(b.first)) onl[b.first] else null) } + onl.filterValues { it != null } }
-        kotlinx.coroutines.coroutineScope {
-            balancers.forEach { b -> launch {
-                val n = kotlinx.coroutines.withTimeoutOrNull(20000) { runCatching { api.online(api.searchUrl(b.second, item.title, serial, cq)) }.getOrNull() }
-                // «similar» = список совпадений по названию: заходим в первое, чтобы увидеть качество и озвучки
-                val deep = if (n?.type == "similar") n.rows.firstNotNullOfOrNull { it.link }?.let { l ->
-                    kotlinx.coroutines.withTimeoutOrNull(15000) { runCatching { api.online(l) }.getOrNull() } } else null
-                var hlsMax = 0
-                val res = (deep?.takeIf { it.rows.isNotEmpty() } ?: n)?.takeIf { it.rows.isNotEmpty() }?.takeIf { nd ->
-                    // фильм с готовыми потоками: источник считаем найденным, только если хотя бы один поток реально открывается
-                    val ps = if (nd.type == "movie") nd.rows.filter { it.play != null && it.quality.isEmpty() }.take(3) else emptyList()
-                    val hs = ps.map { api.hlsInfo(it.play!!) }
-                    hlsMax = hs.filterNotNull().flatten().maxOrNull() ?: 0
-                    ps.isEmpty() || hs.any { it != null }
-                }?.let { nd ->
-                    val q = maxOf(nd.rows.flatMap { it.quality.keys }.maxOfOrNull { it.filter(Char::isDigit).toIntOrNull() ?: 0 } ?: 0, hlsMax)
-                    val qn = if (q > 0) qLabel(q) else ""
-                    val what = when (nd.type) { "movie" -> "${nd.rows.size} озвуч."; "similar" -> "${nd.rows.size} вариант."; "season" -> nd.rows.size.let { c -> "$c " + (if (c % 100 in 11..14) "сезонов" else when (c % 10) { 1 -> "сезон"; 2, 3, 4 -> "сезона"; else -> "сезонов" }) }; else -> "сериал" }
-                    OnlRes(listOf(qn, what).filter { it.isNotEmpty() }.joinToString(" · "), q)
-                }
-                onl = onl + (b.first to res)
-            } }
-        }
-    }
     var fav by remember(item.id) { mutableStateOf(false) }
     LaunchedEffect(item.id) { fav = if (jf) api.isFavorite(item.id) else api.isLocalFav(item.id) }
     var vis by remember { mutableStateOf(false) }
@@ -951,17 +924,14 @@ fun DetailScreen(api: Api, item: Item, go: (Screen) -> Unit, back: () -> Unit) {
         // правая панель источников: Jellyfin / Торренты / Онлайн / Трейлеры
         if (panel != null) Box(Modifier.fillMaxSize().background(Color(0x88000000)).pointerInput(Unit) { detectTapGestures { panel = null } }, contentAlignment = Alignment.CenterEnd) {
             val fr = remember { FocusRequester() }
-            val found = balancers.mapNotNull { b -> onl[b.first]?.let { b to it } }.sortedByDescending { it.second.q }
+            val found = emptyList<Int>()
             LaunchedEffect(panel, found.isNotEmpty()) { delay(100); runCatching { fr.requestFocus() } }
             Glass(0, Modifier.width(380.dp).padding(end = 24.dp).pointerInput(Unit) { detectTapGestures { } }, solid = true) {
                 Column(Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (panel == "online") {
-                        SRow("‹  Назад", "", if (onl.size < balancers.size) "Ищу «${item.title}»: ${found.size} найдено, ${balancers.size - onl.size} проверяется" else if (found.isEmpty()) "Нигде не найдено — откройте любой источник вручную" else "Найдено: ${found.size} из ${balancers.size}", Modifier.focusRequester(fr)) { panel = "src" }
-                        found.forEach { (b, r) -> SRow(b.first, r.label) { go(Screen.Online(item.title + " · " + b.first, api.searchUrl(b.second, item.title, serial, cq), Screen.Detail(item))) } }
-                        // ещё не ответившие и без результата тоже открываются: каждый можно проверить вручную
-                        balancers.filter { b -> !onl.containsKey(b.first) || (onl[b.first] == null && found.isEmpty()) }.forEach { b ->
-                            SRow(b.first, if (onl.containsKey(b.first)) "нет данных" else "проверяю…") { go(Screen.Online(item.title + " · " + b.first, api.searchUrl(b.second, item.title, serial, cq), Screen.Detail(item))) }
-                        }
+                        // как в Lampa: источники фильтром, поиск идёт только в выбранном (не во всех сразу)
+                        SRow("‹  Назад", "", "Выберите источник: поиск «${item.title}» пойдёт только в нём", Modifier.focusRequester(fr)) { panel = null }
+                        balancers.forEach { b -> SRow(b.first, "›") { go(Screen.Online(item.title + " · " + b.first, api.searchUrl(b.second, item.title, serial, cq), Screen.Detail(item))) } }
                     } else {
                         Text("Где смотреть", color = Cyan, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
                         var k = 0
