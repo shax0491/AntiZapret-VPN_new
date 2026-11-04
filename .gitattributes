@@ -1,0 +1,2 @@
+tools/routers/** text eol=lf
+tools/mh-app/*.sh text eol=lf
