@@ -585,6 +585,13 @@ dpkg -s ubuntu-advantage-tools &>/dev/null && apt-get purge -y ubuntu-advantage-
 dpkg -s ubuntu-pro-client &>/dev/null && apt-get purge -y ubuntu-pro-client
 dpkg -s pollinate &>/dev/null && apt-get purge -y pollinate
 dpkg -s secureboot-db &>/dev/null && apt-get purge -y secureboot-db
+dpkg -s telnet &>/dev/null && apt-get purge -y telnet
+dpkg -s inetutils-telnet &>/dev/null && apt-get purge -y inetutils-telnet
+dpkg -s ftp &>/dev/null && apt-get purge -y ftp
+dpkg -s tnftp &>/dev/null && apt-get purge -y tnftp
+dpkg -s lxd-installer &>/dev/null && apt-get purge -y lxd-installer
+dpkg -s lxd-agent-loader &>/dev/null && apt-get purge -y lxd-agent-loader
+dpkg -s openvpn-dco-dkms &>/dev/null && apt-get purge -y openvpn-dco-dkms
 #dpkg -s pastebinit &>/dev/null && apt-get purge -y pastebinit
 
 # Отключим ненужные службы
@@ -623,10 +630,10 @@ set -e
 
 handle_error() {
 	echo "$(lsb_release -ds) $(uname -r) $(date --iso-8601=seconds)"
-	echo -e "\e[1;31mError at line $1: $2\e[0m"
+	echo -e "\e[1;31mError at line $2: $3 (exit code $1)\e[0m"
 	exit 1
 }
-trap 'handle_error $LINENO "$BASH_COMMAND"' ERR
+trap 'handle_error $? $LINENO "$BASH_COMMAND"' ERR
 
 rm -rf /etc/apt/sources.list.d/cznic-labs-knot-resolver.list
 rm -rf /etc/apt/sources.list.d/openvpn-aptrepo.list
