@@ -1291,6 +1291,7 @@ geekuninstaller.com
 transifex.com
 diabrowser.com
 flixcdn.com
+cdn.form.io
 
 # Сертификаты
 #letsencrypt.org
