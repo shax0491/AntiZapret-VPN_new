@@ -134,7 +134,6 @@ dpkg -s upower &>/dev/null && apt-get purge -y upower
 dpkg -s multipath-tools &>/dev/null && apt-get purge -y multipath-tools
 dpkg -s rsyslog &>/dev/null && apt-get purge -y rsyslog
 dpkg -s udisks2 &>/dev/null && apt-get purge -y udisks2
-dpkg -s qemu-guest-agent &>/dev/null && apt-get purge -y qemu-guest-agent
 dpkg -s tuned &>/dev/null && apt-get purge -y tuned
 dpkg -s sysstat &>/dev/null && apt-get purge -y sysstat
 dpkg -s acpid &>/dev/null && apt-get purge -y acpid
@@ -181,7 +180,20 @@ dpkg -s ubuntu-advantage-tools &>/dev/null && apt-get purge -y ubuntu-advantage-
 dpkg -s ubuntu-pro-client &>/dev/null && apt-get purge -y ubuntu-pro-client
 dpkg -s pollinate &>/dev/null && apt-get purge -y pollinate
 dpkg -s secureboot-db &>/dev/null && apt-get purge -y secureboot-db
+dpkg -s telnet &>/dev/null && apt-get purge -y telnet
+dpkg -s inetutils-telnet &>/dev/null && apt-get purge -y inetutils-telnet
+dpkg -s ftp &>/dev/null && apt-get purge -y ftp
+dpkg -s tnftp &>/dev/null && apt-get purge -y tnftp
+dpkg -s lxd-installer &>/dev/null && apt-get purge -y lxd-installer
+dpkg -s lxd-agent-loader &>/dev/null && apt-get purge -y lxd-agent-loader
 #dpkg -s pastebinit &>/dev/null && apt-get purge -y pastebinit
+
+# Отключим ненужные службы
+systemctl disable --now ifupdown-wait-online
+systemctl disable --now setvtrgb
+systemctl disable --now e2scrub_reap
+systemctl disable --now systemd-pstore
+systemctl disable --now motd-news.timer
 
 # SSH protection включён
 if [[ "$SSH_PROTECTION" == 'y' ]]; then
