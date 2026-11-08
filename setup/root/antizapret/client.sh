@@ -34,6 +34,8 @@ fi
 export EASYRSA_PKI=/etc/openvpn/easyrsa3/pki
 cd /root/antizapret
 source setup
+IPV6_ALLOWED_IPS=''
+[[ "$IPV6_MODE" == 'b' ]] && IPV6_ALLOWED_IPS=', ::/0'
 umask 022
 OPTION="$1"
 CLIENT_NAME="$2"
@@ -67,6 +69,8 @@ setServerHost_FileName(){
 	else
 		SERVER_HOST="$1"
 	fi
+	SERVER_ENDPOINT="$SERVER_HOST"
+	[[ "$SERVER_HOST" == *:* && "$SERVER_HOST" != \[* ]] && SERVER_ENDPOINT="[$SERVER_HOST]"
 
 	FILE_NAME="${CLIENT_NAME#antizapret-}"
 	FILE_NAME="${FILE_NAME#vpn-}"
@@ -244,11 +248,12 @@ addWireGuard(){
 [Peer]
 PublicKey = ${CLIENT_PUBLIC_KEY}
 PresharedKey = ${CLIENT_PRESHARED_KEY}
-AllowedIPs = ${CLIENT_IP}/32
+AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 " >> "/etc/wireguard/antizapret.conf"
 		wg syncconf antizapret <(wg-quick strip antizapret 2>/dev/null) &>/dev/null || true
 	fi
 
+	CLIENT_IPV6="fd29:8::$(printf '%x' "${CLIENT_IP##*.}")"
 	render "/etc/wireguard/templates/antizapret-client-wg.conf" > "/root/antizapret/client/wireguard/antizapret/antizapret-$FILE_NAME-wg.conf"
 	render "/etc/wireguard/templates/antizapret-client-am.conf" > "/root/antizapret/client/amneziawg/antizapret/antizapret-$FILE_NAME-am.conf"
 
@@ -281,11 +286,12 @@ AllowedIPs = ${CLIENT_IP}/32
 [Peer]
 PublicKey = ${CLIENT_PUBLIC_KEY}
 PresharedKey = ${CLIENT_PRESHARED_KEY}
-AllowedIPs = ${CLIENT_IP}/32
+AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 " >> "/etc/wireguard/vpn.conf"
 		wg syncconf vpn <(wg-quick strip vpn 2>/dev/null) &>/dev/null || true
 	fi
 
+	CLIENT_IPV6="fd28:8::$(printf '%x' "${CLIENT_IP##*.}")"
 	render "/etc/wireguard/templates/vpn-client-wg.conf" > "/root/antizapret/client/wireguard/vpn/vpn-$FILE_NAME-wg.conf"
 	render "/etc/wireguard/templates/vpn-client-am.conf" > "/root/antizapret/client/amneziawg/vpn/vpn-$FILE_NAME-am.conf"
 
@@ -410,7 +416,7 @@ addAmneziaWG2(){
 [Peer]
 PublicKey = ${CLIENT_PUBLIC_KEY}
 PresharedKey = ${CLIENT_PRESHARED_KEY}
-AllowedIPs = ${CLIENT_IP}/32
+AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 " >> "$AWG2/antizapret2.conf"
 		awg syncconf antizapret2 <(awg-quick strip "$AWG2/antizapret2.conf" 2>/dev/null) &>/dev/null || true
 		# syncconf adds the new peer live but does not re-run PostUp — pin its
@@ -418,6 +424,7 @@ AllowedIPs = ${CLIENT_IP}/32
 		/root/antizapret/awg2-fix-routes.sh antizapret2 || true
 	fi
 
+	CLIENT_IPV6="fd29:9::$(printf '%x' "${CLIENT_IP##*.}")"
 	render "$AWG2/templates/antizapret2-client.conf" > "/root/antizapret/client/amneziawg2/antizapret/antizapret2-$FILE_NAME-am2.conf"
 
 	# VPN
@@ -447,12 +454,13 @@ AllowedIPs = ${CLIENT_IP}/32
 [Peer]
 PublicKey = ${CLIENT_PUBLIC_KEY}
 PresharedKey = ${CLIENT_PRESHARED_KEY}
-AllowedIPs = ${CLIENT_IP}/32
+AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 " >> "$AWG2/vpn2.conf"
 		awg syncconf vpn2 <(awg-quick strip "$AWG2/vpn2.conf" 2>/dev/null) &>/dev/null || true
 		/root/antizapret/awg2-fix-routes.sh vpn2 || true
 	fi
 
+	CLIENT_IPV6="fd28:9::$(printf '%x' "${CLIENT_IP##*.}")"
 	render "$AWG2/templates/vpn2-client.conf" > "/root/antizapret/client/amneziawg2/vpn/vpn2-$FILE_NAME-am2.conf"
 
 	echo "AmneziaWG 2.0 profile files (re)created for client '$CLIENT_NAME' at /root/antizapret/client/amneziawg2"

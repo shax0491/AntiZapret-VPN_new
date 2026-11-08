@@ -312,11 +312,13 @@ net.ipv4.ip_no_pmtu_disc=0
 net.ipv4.ip_forward_use_pmtu=1
 " > /etc/sysctl.d/99-proxy.conf
 
-# Отключим IPv6
-echo "# Disable IPv6
-net.ipv6.conf.all.disable_ipv6=1
-net.ipv6.conf.default.disable_ipv6=1
-net.ipv6.conf.lo.disable_ipv6=1" > /etc/sysctl.d/99-disable-ipv6.conf
+# Включим Dual-Stack транспорт и forwarding для Reverse Tunnel
+echo "# Dual-Stack transport
+net.ipv6.conf.all.disable_ipv6=0
+net.ipv6.conf.default.disable_ipv6=0
+net.ipv6.conf.lo.disable_ipv6=0
+net.ipv6.conf.all.forwarding=1
+net.ipv6.conf.all.proxy_ndp=1" > /etc/sysctl.d/99-dual-stack.conf
 
 # Очистка правил iptables
 iptables -w -F

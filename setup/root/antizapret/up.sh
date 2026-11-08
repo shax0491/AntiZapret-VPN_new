@@ -9,6 +9,17 @@ cd /root/antizapret
 source setup
 
 WARP_PROVIDER="${WARP_PROVIDER:-cloudflare}"
+IPV6_MODE="${IPV6_MODE:-a}"
+printf '%s\n' "$IPV6_MODE" > /etc/knot-resolver/ipv6-mode
+
+wg_endpoint() {
+	local host="$1" port="$2"
+	if [[ "$host" == *:* && "$host" != \[* ]]; then
+		printf '[%s]:%s' "$host" "$port"
+	else
+		printf '%s:%s' "$host" "$port"
+	fi
+}
 
 # Режим 3 и остальные режимы WARP используют разный warp.rpz: пересобираем под текущий
 # ANTIZAPRET_WARP, иначе смена режима из панели (только up.sh) не меняет маршрут доменов
@@ -64,15 +75,16 @@ if [[ "$ANTIZAPRET_WARP" == '2' || "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WAR
 		if [[ -z "$PROTON_ANTIZAPRET_PRIVATE_KEY" || -z "$PROTON_ANTIZAPRET_PUBLIC_KEY" || -z "$PROTON_ANTIZAPRET_ENDPOINT_HOST" || -z "$PROTON_ANTIZAPRET_ADDRESS" ]]; then
 			echo "Proton VPN config for AntiZapret not set! Re-run setup.sh or fill PROTON_ANTIZAPRET_* in /root/antizapret/setup"
 		else
-			ANTIZAPRET_WARP_ENDPOINT="${PROTON_ANTIZAPRET_ENDPOINT_HOST}:${PROTON_ANTIZAPRET_ENDPOINT_PORT:-51820}"
+			ANTIZAPRET_WARP_ENDPOINT="$(wg_endpoint "$PROTON_ANTIZAPRET_ENDPOINT_HOST" "${PROTON_ANTIZAPRET_ENDPOINT_PORT:-51820}")"
 			ANTIZAPRET_WARP_ADDRESS="${PROTON_ANTIZAPRET_ADDRESS}/32"
+			ANTIZAPRET_WARP_ADDRESS_V6="${PROTON_ANTIZAPRET_ADDRESS_IPV6:-}"
 			ANTIZAPRET_WARP_IP="$PROTON_ANTIZAPRET_ADDRESS"
 
 			[[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]] && ANTIZAPRET_FWMARK="fwmark 0x2 "
 
 			echo "[Interface]
 PrivateKey = $PROTON_ANTIZAPRET_PRIVATE_KEY
-Address = $ANTIZAPRET_WARP_ADDRESS
+Address = $ANTIZAPRET_WARP_ADDRESS${ANTIZAPRET_WARP_ADDRESS_V6:+, $ANTIZAPRET_WARP_ADDRESS_V6/128}
 MTU = ${WARP_MTU:-1280}
 Table = 13335
 PostUp = ip rule add from $IP.29.0.0/16 to $IP.29.0.0/16 lookup main priority 5000 || true
@@ -82,7 +94,7 @@ PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 prior
 
 [Peer]
 PublicKey = $PROTON_ANTIZAPRET_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
@@ -114,6 +126,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 			ANTIZAPRET_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
 			ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
 			ANTIZAPRET_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
+			ANTIZAPRET_WARP_ADDRESS_V6="$(echo "$REG" | jq -r '.config.interface.addresses.v6 // empty' | sed 's,/.*,,')"
 		fi
 		ANTIZAPRET_WARP_IP="${ANTIZAPRET_WARP_ADDRESS%%/*}"
 
@@ -121,7 +134,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
 		echo "[Interface]
 PrivateKey = $ANTIZAPRET_WARP_PRIVATE_KEY
-Address = $ANTIZAPRET_WARP_ADDRESS
+Address = $ANTIZAPRET_WARP_ADDRESS${ANTIZAPRET_WARP_ADDRESS_V6:+, $ANTIZAPRET_WARP_ADDRESS_V6/128}
 MTU = ${WARP_MTU:-1280}
 Table = 13335
 PostUp = ip rule add from $IP.29.0.0/16 to $IP.29.0.0/16 lookup main priority 5000 || true
@@ -131,7 +144,7 @@ PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 prior
 
 [Peer]
 PublicKey = $ANTIZAPRET_WARP_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
@@ -169,15 +182,16 @@ if [[ "$VPN_WARP" == '2' || "$VPN_WARP" == '3' || "$VPN_WARP" == '4' ]]; then
 		if [[ -z "$PROTON_VPN_PRIVATE_KEY" || -z "$PROTON_VPN_PUBLIC_KEY" || -z "$PROTON_VPN_ENDPOINT_HOST" || -z "$PROTON_VPN_ADDRESS" ]]; then
 			echo "Proton VPN config for full VPN not set! Re-run setup.sh or fill PROTON_VPN_* in /root/antizapret/setup"
 		else
-			VPN_WARP_ENDPOINT="${PROTON_VPN_ENDPOINT_HOST}:${PROTON_VPN_ENDPOINT_PORT:-51820}"
+			VPN_WARP_ENDPOINT="$(wg_endpoint "$PROTON_VPN_ENDPOINT_HOST" "${PROTON_VPN_ENDPOINT_PORT:-51820}")"
 			VPN_WARP_ADDRESS="${PROTON_VPN_ADDRESS}/32"
+			VPN_WARP_ADDRESS_V6="${PROTON_VPN_ADDRESS_IPV6:-}"
 			VPN_WARP_IP="$PROTON_VPN_ADDRESS"
 
 			[[ "$VPN_WARP" == '3' || "$VPN_WARP" == '4' ]] && VPN_FWMARK="fwmark 0x2 "
 
 			echo "[Interface]
 PrivateKey = $PROTON_VPN_PRIVATE_KEY
-Address = $VPN_WARP_ADDRESS
+Address = $VPN_WARP_ADDRESS${VPN_WARP_ADDRESS_V6:+, $VPN_WARP_ADDRESS_V6/128}
 MTU = ${WARP_MTU:-1280}
 Table = 13336
 PostUp = ip rule add from $IP.28.0.0/16 to $IP.28.0.0/16 lookup main priority 5000 || true
@@ -187,7 +201,7 @@ PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 100
 
 [Peer]
 PublicKey = $PROTON_VPN_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
@@ -219,6 +233,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 			VPN_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
 			VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
 			VPN_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
+			VPN_WARP_ADDRESS_V6="$(echo "$REG" | jq -r '.config.interface.addresses.v6 // empty' | sed 's,/.*,,')"
 		fi
 		VPN_WARP_IP="${VPN_WARP_ADDRESS%%/*}"
 
@@ -226,7 +241,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
 		echo "[Interface]
 PrivateKey = $VPN_WARP_PRIVATE_KEY
-Address = $VPN_WARP_ADDRESS
+Address = $VPN_WARP_ADDRESS${VPN_WARP_ADDRESS_V6:+, $VPN_WARP_ADDRESS_V6/128}
 MTU = ${WARP_MTU:-1280}
 Table = 13336
 PostUp = ip rule add from $IP.28.0.0/16 to $IP.28.0.0/16 lookup main priority 5000 || true
@@ -236,7 +251,7 @@ PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 100
 
 [Peer]
 PublicKey = $VPN_WARP_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
@@ -335,7 +350,7 @@ PostDown = ip rule del uidrange $DNS_WARP_UID-$DNS_WARP_UID lookup 3000 priority
 
 [Peer]
 PublicKey = $DNS_WARP_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 15
 Endpoint = $DNS_WARP_ENDPOINT" > $DNS_WARP_PATH
 
@@ -355,6 +370,25 @@ Endpoint = $DNS_WARP_ENDPOINT" > $DNS_WARP_PATH
 else
 	rm -f $DNS_WARP_PATH
 fi
+
+if [[ "$IPV6_MODE" == 'b' ]]; then
+	for name in antizapret-udp antizapret-tcp vpn-udp vpn-tcp; do
+		conf="/etc/openvpn/server/$name.conf"
+		[[ -f "$conf" ]] || continue
+		sed -i '/^block-ipv6$/d; /^server-ipv6 /d; /^push "route-ipv6 /d' "$conf"
+		case "$name" in
+			antizapret-udp) subnet='fd29:10::/64' ;;
+			antizapret-tcp) subnet='fd29:11::/64' ;;
+			vpn-udp) subnet='fd28:10::/64' ;;
+			vpn-tcp) subnet='fd28:11::/64' ;;
+		esac
+		printf 'server-ipv6 %s\npush "route-ipv6 ::/0"\n' "$subnet" >> "$conf"
+		systemctl restart "openvpn-server@$name"
+	done
+else
+	sed -i '/^server-ipv6 /d; /^push "route-ipv6 /d' /etc/openvpn/server/*.conf
+fi
+systemctl restart kresd@1 kresd@2 kresd@3
 
 # filter
 iptables -w -P INPUT ACCEPT
@@ -627,6 +661,12 @@ else
 	else
 		iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/16 -o $VPN_OUT_INTERFACE -j SNAT --to-source $VPN_OUT_IP
 	fi
+fi
+
+if [[ "$IPV6_MODE" == 'b' ]]; then
+	for out_interface in $(printf '%s\n' "$ANTIZAPRET_OUT_INTERFACE" "$VPN_OUT_INTERFACE" | sort -u); do
+		[[ -n "$out_interface" ]] && ip6tables -w -t nat -A POSTROUTING -s fd28::/15 -o "$out_interface" -j MASQUERADE
+	done
 fi
 
 # Network tuning
