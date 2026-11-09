@@ -712,7 +712,8 @@ gql.twitch.tv
 live.chat.eveonline.com
 #labs.google
 squarecdn.com
-xgpuweb.gssv-play-prod.xboxlive.com
+#xgpuweb.gssv-play-prod.xboxlive.com
+gssv-play-prod.xboxlive.com
 auth.xboxlive.com
 swarovski.com
 weekday.com
@@ -1294,6 +1295,11 @@ flixcdn.com
 cdn.form.io
 kleinanzeigen.de
 mouser.de
+ntc.party
+designer.microsoft.com
+#designerapp.officeapps.live.com
+ecs.office.com
+hifishark.com
 
 # Сертификаты
 #letsencrypt.org
