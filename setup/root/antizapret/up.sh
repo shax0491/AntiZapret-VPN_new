@@ -490,6 +490,12 @@ if [[ "$ATTACK_PROTECTION" == 'y' ]]; then
 	ip6tables -w -I INPUT 5 -i $DEFAULT_INTERFACE -m conntrack --ctstate NEW -m set --match-set antizapret-block6 src -j DROP
 	ip6tables -w -I INPUT 6 -i $DEFAULT_INTERFACE -m conntrack --ctstate NEW -j SET --add-set antizapret-watch6 src,dst --exist
 fi
+# Flood protection (апстрим 07.11)
+if [[ "$FLOOD_PROTECTION" == 'y' ]]; then
+	iptables -w -I FORWARD 2 -s $IP.28.0.0/15 -m conntrack --ctstate NEW -m hashlimit --hashlimit-name antizapret-new --hashlimit-mode srcip --hashlimit-above 100/sec --hashlimit-burst 1000 --hashlimit-htable-expire 10000 -j DROP
+	iptables -w -I INPUT 2 -s $IP.28.0.0/15 -d 127.0.0.0/8 -m hashlimit --hashlimit-name antizapret-dns --hashlimit-mode srcip --hashlimit-above 100/sec --hashlimit-burst 1000 --hashlimit-htable-expire 10000 -j DROP
+	iptables -w -I FORWARD 2 -s $IP.28.0.0/15 -m conntrack --ctstate NEW -m connlimit --connlimit-above 1000 --connlimit-mask 32 -j DROP
+fi
 if [[ "$SCAN_PROTECTION" == 'y' ]]; then
 	iptables -w -I INPUT 2 -i $DEFAULT_INTERFACE -p icmp --icmp-type echo-request -j DROP
 	iptables -w -I OUTPUT 2 -o $DEFAULT_INTERFACE -p tcp --tcp-flags RST RST -j DROP

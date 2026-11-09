@@ -306,7 +306,7 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	| CHARSET=UTF-8 nice -n 19 ionice -c3 idn --no-tld >> temp/include-hosts.txt
 
 	if [[ "$CLEAR_HOSTS" == 'y' ]]; then
-		grep -Evi '[ck]a+[szc3]+[iley1]+n+[0-9o]|[vw][uy]+[l1]+[kc]a+n|[vw]a+[vw]+a+d+a|x-*bet|most-*bet|leon-*bet|rio-*bet|mel-*bet|ramen-*bet|marathon-*bet|max-*bet|bet-*win|gg-*bet|spin-*bet|banzai-*bet|1iks-*bet|x-*slot|sloto-*zal|max-*slot|bk-*leon|gold-*fishka|play-*fortuna|dragon-*money|poker-*dom|1-*win|crypto-*bos|free-*spin|fair-*spin|no-*deposit|igrovye|avtomaty|bookmaker|zerkalo|slottica|sykaaa|admiral-*x|x-*admiral|pinup-*bet|pari-*match|betting|partypoker|jackpot|bonus|azino[0-9-]|888-*starz|zooma[0-9-]|zenit-*bet|eldorado|slots|vodka|newretro|platinum|igrat|flagman|arkada' temp/include-hosts.txt | sort -u > temp/include-hosts2.txt
+		grep -Evi '[ck]a+[szc3]+[iley1]+n+[0-9o]|[vw][uy]+[l1]+[kc]a+n|[vw]a+[vw]+a+d+a|x-*bet|most-*bet|leon-*bet|rio-*bet|mel-*bet|ramen-*bet|marathon-*bet|max-*bet|bet-*win|gg-*bet|spin-*bet|banzai-*bet|1iks-*bet|x-*slot|sloto-*zal|max-*slot|bk-*leon|gold-*fishka|play-*fortuna|dragon-*money|poker-*dom|1-*win|crypto-*bos|free-*spin|fair-*spin|no-*deposit|igrovye|avtomaty|bookmaker|zerkalo|slottica|sykaaa|admiral-*x|x-*admiral|pin-*up|pari-*match|betting|partypoker|jackpot|bonus|azino[0-9-]|888-*starz|zooma[0-9-]|zenit-*bet|eldorado|slots|vodka|new-?retro|platinum|igrat|flagman|arkada|diplom|attestat|kupit|pra[vw]a|svidetelstv[ao]|armada|spra[vw]k[ai]|black-*sprut|zooma|^1[^0-9]{5}.' temp/include-hosts.txt | sort -u > temp/include-hosts2.txt
 	else
 		sort -u temp/include-hosts.txt > temp/include-hosts2.txt
 	fi
@@ -374,7 +374,7 @@ fi
 # WARP со временем начинает тупить, переподключение лечит (апстрим 34ee7cf0); конфиги не меняются.
 # Правило kresd@2 -> таблица WARP (up.sh) от интерфейса не зависит и переживает переподключение
 # Апстрим 02.11: переподключение только при RECONNECT_WARP=y (по умолчанию n): у Proton-ключей каждый перезапуск туннеля - новое подключение к лимиту аккаунта
-if [[ "$RECONNECT_WARP" == 'y' ]]; then
+if [[ "$RECONNECT_WARP" == 'y' && $(cut -d. -f1 /proc/uptime) -gt 60 ]]; then
 for iface in warp-antizapret warp-vpn; do
 	if [[ -f "/etc/wireguard/$iface.conf" ]] && ip link show dev $iface &>/dev/null; then
 		wg-quick down $iface 2>/dev/null && wg-quick up $iface 2>/dev/null

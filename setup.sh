@@ -46,7 +46,7 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 		ANTIZAPRET_DNS=1 VPN_DNS=1 ANTIZAPRET_ADBLOCK=y VPN_ADBLOCK=n ALTERNATIVE_CLIENT_IP=n \
 		ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y \
 		OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y \
-		TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y \
+		FLOOD_PROTECTION=y TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y \
 		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n; do
 		AZ_DEFAULT_NAME="${AZ_DEFAULT%%=*}"
 		if [[ -z "${!AZ_DEFAULT_NAME}" ]]; then
@@ -454,6 +454,11 @@ until [[ "$SCAN_PROTECTION" =~ (y|n) ]]; do
 	read -rp 'Enable network scan protection? [y/n]: ' -e -i y SCAN_PROTECTION
 done
 echo
+echo 'Warning! Flood protection limits new connections and DNS queries per VPN client!'
+until [[ "$FLOOD_PROTECTION" =~ (y|n) ]]; do
+	read -rp 'Enable VPN client flood protection? [y/n]: ' -e -i y FLOOD_PROTECTION
+done
+echo
 echo 'Warning! Torrent guard blocks VPN traffic for 1 minute on torrent detection!'
 until [[ "$TORRENT_GUARD" =~ (y|n) ]]; do
 	read -rp $'Enable torrent guard for \001\e[1;32m\002full VPN\001\e[0m\002? [y/n]: ' -e -i y TORRENT_GUARD
@@ -815,6 +820,7 @@ OPENVPN_LOG=$OPENVPN_LOG
 SSH_PROTECTION=$SSH_PROTECTION
 ATTACK_PROTECTION=$ATTACK_PROTECTION
 SCAN_PROTECTION=$SCAN_PROTECTION
+FLOOD_PROTECTION=$FLOOD_PROTECTION
 TORRENT_GUARD=$TORRENT_GUARD
 RESTRICT_FORWARD=$RESTRICT_FORWARD
 CLIENT_ISOLATION=$CLIENT_ISOLATION
@@ -1016,8 +1022,8 @@ elif [[ "$VPN_DNS" == '6' ]]; then
 	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 94.140.14.14"\npush "dhcp-option DNS 94.140.15.15"' /etc/openvpn/server/vpn*.conf
 	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/94.140.14.14, 94.140.15.15/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
 elif [[ "$VPN_DNS" == '7' ]]; then
-	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 83.220.169.155"\npush "dhcp-option DNS 212.109.195.93"\npush "dhcp-option DNS 195.133.25.16"' /etc/openvpn/server/vpn*.conf
-	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/83.220.169.155, 212.109.195.93, 195.133.25.16/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
+	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 212.109.221.20"\npush "dhcp-option DNS 212.109.195.93"\npush "dhcp-option DNS 195.133.25.16"' /etc/openvpn/server/vpn*.conf
+	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/212.109.221.20, 212.109.195.93, 195.133.25.16/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
 elif [[ "$VPN_DNS" == '8' || "$VPN_DNS" == '9' ]]; then
 	sed -i '/push "dhcp-option DNS 1\.1\.1\.1"/,+1c push "dhcp-option DNS 193.233.112.67"\npush "dhcp-option DNS 193.233.112.68"\npush "dhcp-option DNS 45.155.204.190"\npush "dhcp-option DNS 37.230.192.51"' /etc/openvpn/server/vpn*.conf
 	sed -i 's/1\.1\.1\.1, 1\.0\.0\.1/193.233.112.67, 193.233.112.68, 45.155.204.190, 37.230.192.51/' /etc/wireguard/templates/vpn-client*.conf /etc/amneziawg/templates/vpn2-client.conf
