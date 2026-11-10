@@ -1,0 +1,11 @@
+# /etc/wireguard/azr1.conf на ЗАРУБЕЖНОЙ ноде (NL2). Туннель ИСХОДЯЩИЙ: нода звонит в РФ/домой, поэтому переживает бан входящих.
+# systemctl enable --now wg-quick@azr1
+[Interface]
+Address = 10.77.0.2/24
+MTU = 1280
+PrivateKey = <ключ ноды: wg genkey > /root/azr1.key, chmod 600>
+[Peer]
+PublicKey = <публичный ключ Wireguard30 на роутере: ndmc show interface Wireguard30>
+Endpoint = <белый IP роутера>:41992        # допустим [IPv6]:41992 (проверено на NL2, v6 WAN роутера)
+AllowedIPs = 10.77.0.1/32
+PersistentKeepalive = 25                   # обязателен (<=25): держит conntrack при бане входящих NEW

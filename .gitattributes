@@ -1,2 +1,3 @@
 tools/routers/** text eol=lf
 tools/mh-app/*.sh text eol=lf
+az-guard/** text eol=lf
