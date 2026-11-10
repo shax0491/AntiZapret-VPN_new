@@ -67,7 +67,7 @@ arm_rollback(){
 #!/usr/bin/env bash
 # точечный откат: только объекты $CHAIN/$MCHAIN/prio $PRIO/table $TABLE
 [ -f "$BK/.armed" ] || exit 0
-iptables -w -t nat -D POSTROUTING -j $NCHAIN 2>/dev/null; iptables -w -t nat -F $NCHAIN 2>/dev/null; iptables -w -t nat -X $NCHAIN 2>/dev/null
+for nb in iptables ip6tables; do \$nb -w -t nat -D POSTROUTING -j $NCHAIN 2>/dev/null; \$nb -w -t nat -F $NCHAIN 2>/dev/null; \$nb -w -t nat -X $NCHAIN 2>/dev/null; done
 for b in iptables ip6tables; do
   \$b -w -D FORWARD -j $CHAIN 2>/dev/null; \$b -w -F $CHAIN 2>/dev/null; \$b -w -X $CHAIN 2>/dev/null
   \$b -w -t mangle -D PREROUTING -j $MCHAIN 2>/dev/null; \$b -w -t mangle -F $MCHAIN 2>/dev/null; \$b -w -t mangle -X $MCHAIN 2>/dev/null
@@ -115,6 +115,10 @@ ensure_rules(){
     "$b" -w -S "$CHAIN" >/dev/null 2>&1 && ipt_jump "$b" filter FORWARD "$CHAIN" || true
     "$b" -w -t mangle -S "$MCHAIN" >/dev/null 2>&1 && ipt_jump "$b" mangle PREROUTING "$MCHAIN" || true
   done
-  iptables -w -t nat -S "$NCHAIN" >/dev/null 2>&1 && ipt_jump iptables nat POSTROUTING "$NCHAIN" || true
+  for b in iptables ip6tables; do
+    [ "$b" = ip6tables ] && [ "${HAS_IPV6:-1}" != 1 ] && continue
+    "$b" -w -t nat -S "$NCHAIN" >/dev/null 2>&1 && { ipt_jump "$b" nat POSTROUTING "$NCHAIN" || true; }
+  done
+  return 0
   return 0
 }

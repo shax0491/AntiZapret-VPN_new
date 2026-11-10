@@ -388,6 +388,63 @@ systemctl daemon-reload && systemctl enable --now proton-auto.timer   # спис
 
 ---
 
+## 🌐 Dual-Stack (IPv6), Egress-Guard и Reverse-Tunnel
+
+Три необязательных возможности, которые `setup.sh` спрашивает при установке (по умолчанию везде `n`, при `--update` старые установки ничего не включают сами). Реализация: каталог [`az-guard/`](az-guard/README.md) и [`mihomo/`](mihomo/README.md).
+
+### Как это устроено
+
+* **Dual-Stack (IPv6).** Если на сервере есть рабочий нативный IPv6, установщик включает `net.ipv6.conf.all.forwarding`, пишет `HAS_IPV6=1` в `/etc/az-guard.conf` и добавляет IPv6-правила для выхода через Proton (`ip -6 rule oif proton lookup 51820`). Профили Proton должны содержать IPv6 (`Address = ... , 2a07:b944::2:2/128`, `AllowedIPs = 0.0.0.0/0, ::/0`) — установщик их не переписывает. Если IPv6 на сервере не работает, шаг пропускается с предупреждением (`HAS_IPV6=0`), установка не прерывается.
+* **Egress-Guard.** Трафик клиентских слоёв (AWG 1.5/2/3, WireGuard, OpenVPN) помечается в `mangle` (fwmark `0x1f40`), уходит в отдельную таблицу маршрутизации 100 (egress Proton/WARP + `blackhole default` в конце) и ограничивается цепочкой `AZ_EGRESS_GUARD` в `FORWARD` (клиент → только `-o egress`, иначе DROP/REJECT). Для клиентских подсетей ставится SNAT/MASQUERADE `AZ_EGRESS_NAT`. Принцип: **если выход Proton/WARP упал, клиент остаётся без интернета, а не уходит в обход туннеля с IP сервера**. Монитор раз в 30 секунд проверяет handshake и HTTPS каждого egress, переносит мёртвый выход за blackhole и возвращает правила (в т.ч. после `networkctl reconfigure` и перезапуска `antizapret`). Egress IP обязан отличаться от входного IP узла.
+* **Reverse-Tunnel.** Подготавливается только шаблон `/etc/wireguard/azr1.conf.example`; боевой туннель (relay ↔ exit) создаёт AdminPanel (раздел узла → Reverse-Tunnel). Установщик `wg-quick@azr1` не запускает.
+
+### Установка с нуля
+
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/main/setup.sh)
+```
+
+Новые вопросы (после «client and server isolation»):
+
+| Вопрос | Что отвечать |
+|---|---|
+| `Enable IPv6 Dual-Stack ...?` | `y` только если у сервера есть **нативный** IPv6 (проверьте `curl -6 https://ifconfig.co`). Иначе `n`. |
+| `Enable Egress-Guard ...?` (задаётся только если выбран WARP/Proton) | `y`, если весь исходящий трафик клиентов должен выходить через Proton/WARP и никогда напрямую. |
+| `Prepare Reverse-Tunnel template ...?` | `y`, если узел будет «выходом» для relay-узла в РФ; туннель потом создаётся из панели. |
+
+Guard применяется с **автооткатом 300 с** (`az-rollback-<TS>` systemd-timer): установщик ставит правила, делает `az-audit.sh`; при успехе фиксирует (`--commit`, включает юниты `az-egress-guard` и `az-egress-monitor`), при неуспехе оставляет таймер отката и пишет причину в `/var/log/az-guard-install.log`.
+
+### Доустановка на существующий сервер
+
+```bash
+git clone https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/azr && cd /tmp/azr/az-guard
+./az-guard-install.sh --dualstack y --guard y --reverse n            # спросит подтверждение перед apply
+./az-guard-install.sh --guard y --yes --ingress-ip <публичный IP>   # без вопросов, IP узла вручную (NAT)
+./az-guard-install.sh --guard y --no-apply                          # только conf и файлы, правила не трогать
+```
+
+После этого проверьте: `/root/az-guard/az-audit.sh --conf /etc/az-guard.conf` (read-only; `SUMMARY fail=0`).
+Откат: `systemctl disable --now az-egress-monitor az-egress-guard` и `/root/az-guard/…/restore.sh` (подробно — `az-guard/README.md`).
+Повторный `setup.sh --update` берёт ответы из `/root/antizapret/setup` (`AZ_DUALSTACK`, `AZ_EGRESS_GUARD`, `AZ_REVERSE_TUNNEL`).
+
+### Mihomo (домашний роутер)
+
+Конфиг Mihomo собирается на сервере-сборщике (`/opt/mh-app`) из шаблона и раздаётся роутерам. Режимы:
+
+* **Только IPv4 (по умолчанию, рекомендуется).** `mihomo/mh-ipv6.sh off` → `ipv6: false` в `ipv6:`/`dns.ipv6:`. Роутер не раздаёт IPv6 в LAN, v6-утечки нет.
+* **Dual-Stack.** `mihomo/mh-ipv6.sh on` — только если провайдер выдаёт префикс (DHCPv6-PD) **и** роутер раздаёт IPv6 в LAN через Mihomo. Если раздать IPv6 без Mihomo, v6-трафик устройств пойдёт мимо VPN (проверено на практике: утечка).
+
+Сайты-чекеры IP/DNS (`ifconfig.me`, `checkip.amazonaws.com`, `ident.me`, `ipinfo.io`, `whoer.net`, `dnsleaktest.com` и др.) принудительно идут через «Авто — самый быстрый» с DNS через 1.1.1.1 внутри туннеля — чтобы чекер показывал IP выхода, а не домашний. Остальной интернет по умолчанию «Напрямую» (так задумано: РФ-ресурсы работают без VPN).
+
+### Reverse-Tunnel по шагам (relay в РФ ↔ exit за рубежом)
+
+1. На exit-узле (за рубежом) — установка с `Prepare Reverse-Tunnel template = y` (или `az-guard-install.sh --reverse y`).
+2. В AdminPanel: узлы → relay-узел (proxy) должен быть привязан к VPN-узлу (`linked_vpn_node_id`) → карточка → **Reverse-Tunnel → «Подготовить»**: панель генерирует ключи (приватные ключи хранятся зашифрованными и не показываются), порт, `tunnel_ipv4/ipv6`.
+3. Проверьте статус (handshake, state `standby`), затем **«Активировать»** — relay переключается на адрес туннеля, транспорт узла становится `reverse`.
+4. Проверка: `wg show azr1 latest-handshakes` на обоих концах, `az-reverse-test.sh`. Откат: вернуть транспорт узла в `auto`.
+
+> Статус: механизм реверса и Mihomo-v6 проверены на тестовом узле, но на домашнем роутере **не развёрнуты в боевом режиме** — на роутере работает только штатный Mihomo.
+
 ## 🌍 Настроить прокси-сервер
 
 Если ваш зарубежный сервер с АнтиЗапретом оказался заблокирован, то к нему можно настроить подключение через свой сервер в России.

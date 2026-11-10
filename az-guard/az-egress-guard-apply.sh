@@ -69,12 +69,13 @@ apply_family(){
     done
   fi
 
-  if [ "$v6" = 0 ]; then
-    # без SNAT пакет клиента уходит в Proton/WARP с приватным src и молча теряется (найдено сквозным тестом на NL2)
+  if [ "$v6" = 0 ] || [ "$HAS_IPV6" = 1 ]; then
+    # без SNAT/NAT66 пакет клиента уходит в Proton с приватным/ULA src и молча теряется (найдено сквозным тестом на NL2)
     ipt_chain "$bin" nat "$NCHAIN"; ipt_jump "$bin" nat POSTROUTING "$NCHAIN"
     for L in $LAYERS; do
       IFS=':' read -r name iface v4s v6s <<<"$L"
-      for s in ${v4s//,/ }; do for e in $EGRESS_IFACES; do ipt_rule "$bin" nat "$NCHAIN" -s "$s" -o "$e" -j MASQUERADE; done; done
+      if [ "$v6" = 1 ]; then subs="${v6s//,/ }"; else subs="${v4s//,/ }"; fi
+      for s in $subs; do for e in $EGRESS_IFACES; do ipt_rule "$bin" nat "$NCHAIN" -s "$s" -o "$e" -j MASQUERADE; done; done
     done
   fi
 

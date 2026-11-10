@@ -47,7 +47,7 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 		ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y \
 		OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y \
 		FLOOD_PROTECTION=y TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y \
-		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n; do
+		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n AZ_DUALSTACK=n AZ_EGRESS_GUARD=n AZ_REVERSE_TUNNEL=n; do
 		AZ_DEFAULT_NAME="${AZ_DEFAULT%%=*}"
 		if [[ -z "${!AZ_DEFAULT_NAME}" ]]; then
 			printf -v "$AZ_DEFAULT_NAME" '%s' "${AZ_DEFAULT#*=}"
@@ -472,6 +472,26 @@ until [[ "$CLIENT_ISOLATION" =~ (y|n) ]]; do
 	read -rp $'Enable \001\e[1;32m\002all VPN\001\e[0m\002 client and server isolation? [y/n]: ' -e -i y CLIENT_ISOLATION
 done
 echo
+# Dual-Stack / Egress-Guard / Reverse-Tunnel (az-guard/): по умолчанию выключено; при --update старые установки сами ничего не включают
+echo 'Info: IPv6 Dual-Stack needs working NATIVE IPv6 on this server (checked during install; without it stays off)'
+until [[ "$AZ_DUALSTACK" =~ (y|n) ]]; do
+	read -rp 'Enable IPv6 Dual-Stack (IPv6 routes, ip -6 rules, ip6tables for all VPN layers)? [y/n]: ' -e -i n AZ_DUALSTACK
+done
+echo
+# Egress-Guard имеет смысл только если трафик слоёв уходит в Proton/WARP (охват WARP выбран выше)
+if [[ "$ANTIZAPRET_WARP" != '1' || "$VPN_WARP" != '1' ]]; then
+	echo 'Info: Egress-Guard blocks traffic leaking past the Proton/WARP exit tunnel; rules are applied with a 300 s auto-rollback'
+	until [[ "$AZ_EGRESS_GUARD" =~ (y|n) ]]; do
+		read -rp 'Enable Egress-Guard (leak protection + exit auto-failover)? [y/n]: ' -e -i n AZ_EGRESS_GUARD
+	done
+	echo
+else
+	AZ_EGRESS_GUARD=n
+fi
+until [[ "$AZ_REVERSE_TUNNEL" =~ (y|n) ]]; do
+	read -rp 'Prepare Reverse-Tunnel template (the tunnel itself is created later from AdminPanel)? [y/n]: ' -e -i n AZ_REVERSE_TUNNEL
+done
+echo
 # При обновлении доменные имена берём из setup как есть (пустое значение - тоже ответ)
 if [[ "$AZ_UPDATE" != 'y' ]]; then
 	while read -rp 'Enter valid domain name for this OpenVPN server or press Enter to skip: ' -e OPENVPN_HOST
@@ -824,6 +844,9 @@ FLOOD_PROTECTION=$FLOOD_PROTECTION
 TORRENT_GUARD=$TORRENT_GUARD
 RESTRICT_FORWARD=$RESTRICT_FORWARD
 CLIENT_ISOLATION=$CLIENT_ISOLATION
+AZ_DUALSTACK=$AZ_DUALSTACK
+AZ_EGRESS_GUARD=$AZ_EGRESS_GUARD
+AZ_REVERSE_TUNNEL=$AZ_REVERSE_TUNNEL
 OPENVPN_HOST=$OPENVPN_HOST
 WIREGUARD_HOST=$WIREGUARD_HOST
 ROUTE_ALL=$ROUTE_ALL
@@ -866,6 +889,10 @@ chown -R knot-resolver:knot-resolver /var/cache/knot-resolver3
 rm -rf /root/antizapret
 cp -r /tmp/antizapret/setup/* /
 rm -rf /tmp/dnslib
+# az-guard и mihomo лежат в корне репо (не в setup/): сохраняем до удаления клона, установщик вызывается ниже
+rm -rf /root/antizapret/az-guard-src /root/antizapret/mihomo
+cp -r /tmp/antizapret/az-guard /root/antizapret/az-guard-src 2>/dev/null || true
+cp -r /tmp/antizapret/mihomo /root/antizapret/mihomo 2>/dev/null || true
 rm -rf /tmp/antizapret
 
 # Модуль ядра AmneziaWG для AmneziaWG 2 и 3: шифрование в ядре быстрее amneziawg-go (на 1-2 vCPU
@@ -1178,6 +1205,17 @@ if [[ -z "$(swapon --show)" ]]; then
 fi
 
 echo
+if [[ "$AZ_UPDATE" != 'y' ]]; then
+	if [[ "$AZ_DUALSTACK" == 'y' || "$AZ_EGRESS_GUARD" == 'y' || "$AZ_REVERSE_TUNNEL" == 'y' ]]; then
+		echo 'Configuring Dual-Stack / Egress-Guard / Reverse-Tunnel...'
+		if [[ -x /root/antizapret/az-guard-src/az-guard-install.sh ]]; then
+			/root/antizapret/az-guard-src/az-guard-install.sh --dualstack "$AZ_DUALSTACK" --guard "$AZ_EGRESS_GUARD" --reverse "$AZ_REVERSE_TUNNEL" --yes \
+				|| echo -e '\e[1;33mWarning! az-guard-install.sh finished with errors, see /var/log/az-guard-install.log\e[0m'
+		else
+			echo -e '\e[1;33mWarning! az-guard installer not found, skipping\e[0m'
+		fi
+	fi
+fi
 if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# Обновление без перезагрузки: службы, остановленные в начале (systemctl disable --now),
 	# запускаем заново, клиенты переподключатся сами. Новое ядро (если поставилось и под него собрался
@@ -1191,6 +1229,15 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	for AZ_UNIT in openvpn-server@antizapret-udp openvpn-server@vpn-udp openvpn-server@antizapret-tcp openvpn-server@vpn-tcp wg-quick@antizapret wg-quick@vpn amneziawg@antizapret2 amneziawg@vpn2 awg3@awg1 warpscout-refresh.timer; do
 		systemctl is-enabled --quiet "$AZ_UNIT" 2>/dev/null && systemctl restart "$AZ_UNIT"
 	done
+	if [[ "$AZ_DUALSTACK" == 'y' || "$AZ_EGRESS_GUARD" == 'y' || "$AZ_REVERSE_TUNNEL" == 'y' ]]; then
+		echo 'Configuring Dual-Stack / Egress-Guard / Reverse-Tunnel...'
+		if [[ -x /root/antizapret/az-guard-src/az-guard-install.sh ]]; then
+			/root/antizapret/az-guard-src/az-guard-install.sh --dualstack "$AZ_DUALSTACK" --guard "$AZ_EGRESS_GUARD" --reverse "$AZ_REVERSE_TUNNEL" --yes \
+				|| echo -e '\e[1;33mWarning! az-guard-install.sh finished with errors, see /var/log/az-guard-install.log\e[0m'
+		else
+			echo -e '\e[1;33mWarning! az-guard installer not found, skipping\e[0m'
+		fi
+	fi
 	echo
 	echo -e '\e[1;32mAntiZapret VPN + full VPN updated successfully!\e[0m'
 	if [[ -n "$AWG_BOOT_KERNEL" && "$AWG_BOOT_KERNEL" != "$(uname -r)" ]]; then

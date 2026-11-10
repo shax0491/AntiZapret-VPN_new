@@ -11,4 +11,6 @@ BASE_RULES="-4|oif proton lookup 51820 priority 1000
 -4|from 10.9.0.0/24 to 10.9.0.0/24 lookup main priority 5000
 -4|from 10.9.1.0/24 to 10.9.1.0/24 lookup main priority 5000
 -4|from 10.29.0.0/16 lookup 13335 priority 10000
--4|from 10.9.0.0/24 lookup 13335 priority 10000"
+-4|from 10.9.0.0/24 lookup 13335 priority 10000
+-6|oif proton lookup 51820 priority 1000
+-6|oif warp-antizapret lookup 13335 priority 1001"
