@@ -313,6 +313,9 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 
 	comm -13 temp/remove-hosts.txt temp/include-hosts2.txt > temp/include-hosts3.txt
 	comm -13 temp/remove-hosts.txt temp/exclude-hosts.txt > result/exclude-hosts.txt
+	# Проверка связи Android идёт внутри туннеля: реальный IP вне AllowedIPs даёт плашку
+	# «Без доступа к интернету». Домен под google.com/gstatic.com получает фейк-IP из 198.18/15.
+	sed -i '/^connectivitycheck\.gstatic\.com$/d' result/exclude-hosts.txt
 
 	if [[ "$ROUTE_ALL" == 'y' ]]; then
 		sed -E '/\..*\./ s/^([0-9]*www[0-9]*|hd[0-9]*|[0-9]+)\.//' temp/include-hosts3.txt > temp/include-hosts4.txt
