@@ -1299,6 +1299,10 @@ designer.microsoft.com
 #designerapp.officeapps.live.com
 ecs.office.com
 hifishark.com
+theserverside.com
+
+epidemicsound.com
+remarkable.com
 
 # Сертификаты
 #letsencrypt.org
