@@ -701,6 +701,13 @@ echo "Proxy DNS cache cleared: $count entries"
 
 # AWG 3.1: правила 10.9.x пересобираются после каждого запуска антизапрета, если интерфейс awg1 поднят
 # (адрес и режим WARP берутся из setup, который только что прочитан)
+# setup.sh кладёт awg3-скрипты в /usr/local/sbin только при установке; при обновлении файлов в
+# /root/antizapret/awg3 копия в sbin оставалась старой и без nft-правил awg3-split/awg3-full (11.11)
+for _awg3_script in awg3-rules.sh awg3-up.sh; do
+	if [[ -f /root/antizapret/awg3/$_awg3_script ]] && ! cmp -s /root/antizapret/awg3/$_awg3_script /usr/local/sbin/$_awg3_script; then
+		install -m 755 /root/antizapret/awg3/$_awg3_script /usr/local/sbin/$_awg3_script || true
+	fi
+done
 if [[ -x /usr/local/sbin/awg3-rules.sh ]] && systemctl is-active --quiet awg3@awg1; then
 	/usr/local/sbin/awg3-rules.sh up || true
 fi
