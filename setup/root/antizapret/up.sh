@@ -425,7 +425,15 @@ else
 				for a in $(sed -n 's/^[Aa]ddress *= *//p' "/etc/wireguard/$IPV6_OUT_INTERFACE.conf" 2>/dev/null | tr ',' ' '); do
 					[[ "$a" == *:* ]] && ip -6 addr add "$a" dev "$IPV6_OUT_INTERFACE" 2>/dev/null || true
 				done
+				# в конфиге нет IPv6 (Proton выдаёт 2a07:b944::2:2/128 на любой ключ): берём его, иначе трафик не пойдёт
+				if [[ "$IPV6_EGRESS" == 'proton' ]] && ! ip -6 addr show dev "$IPV6_OUT_INTERFACE" scope global 2>/dev/null | grep -q inet6; then
+					ip -6 addr add "${IPV6_PROTON_ADDRESS:-2a07:b944::2:2/128}" dev "$IPV6_OUT_INTERFACE" 2>/dev/null || true
+				fi
 			fi
+			# wg-peer должен пропускать ::/0 (в конфиге может быть только 0.0.0.0/0)
+			for p in $(wg show "$IPV6_OUT_INTERFACE" peers 2>/dev/null); do
+				wg set "$IPV6_OUT_INTERFACE" peer "$p" allowed-ips 0.0.0.0/0,::/0 2>/dev/null || true
+			done
 			ip -6 route replace default dev "$IPV6_OUT_INTERFACE" table $IPV6_ROUTE_TABLE
 			ip -6 rule add from fd28::/15 lookup $IPV6_ROUTE_TABLE priority 10006
 			ip -6 rule add oif "$IPV6_OUT_INTERFACE" lookup $IPV6_ROUTE_TABLE priority 10007
