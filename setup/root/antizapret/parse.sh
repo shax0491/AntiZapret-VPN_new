@@ -372,6 +372,10 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 	sed '/^\.$/ s/.*/*. CNAME rpz-passthru./; t; s/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-hosts.txt >> temp/proxy.rpz
 	sed 's/\r//g; /^;/d; /^$/d' config/*proxy-rpz.txt >> temp/proxy.rpz
 	cp temp/proxy.rpz result/proxy.rpz
+	# noaaaa.rpz: те же исключения, что passthru в proxy.rpz - kresd@1 по ним в режимах b/c отдаёт пустой AAAA
+	printf '%s\n' '$TTL 10800' '@ SOA . . (1 1 1 1 10800)' > result/noaaaa.rpz
+	sed '/^\.$/ s/.*/*. CNAME ./; t; s/$/ CNAME ./; p; s/^/*./' result/exclude-hosts.txt >> result/noaaaa.rpz
+	cp -f result/noaaaa.rpz /etc/knot-resolver/noaaaa.rpz.tmp && mv -f /etc/knot-resolver/noaaaa.rpz.tmp /etc/knot-resolver/noaaaa.rpz
 
 	if [[ -f result/proxy.rpz ]] && ! diff -q result/proxy.rpz /etc/knot-resolver/proxy.rpz; then
 		purge_changed_names /etc/knot-resolver/proxy.rpz result/proxy.rpz /run/knot-resolver/control/1 'proxy.rpz'
