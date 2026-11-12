@@ -274,6 +274,11 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 	if [[ "$AKAMAI_INCLUDE" == 'y' ]]; then download $AKAMAI_IPS_PATH $AKAMAI_IPS_LINK n || true; else rm -f $AKAMAI_IPS_PATH; fi
 	if [[ "$WHATSAPP_INCLUDE" == 'y' ]]; then download $WHATSAPP_IPS_PATH $WHATSAPP_IPS_LINK n || true; else rm -f $WHATSAPP_IPS_PATH; fi
 	if [[ "$ROBLOX_INCLUDE" == 'y' ]]; then download $ROBLOX_IPS_PATH $ROBLOX_IPS_LINK n || true; else rm -f $ROBLOX_IPS_PATH; fi
+	# IPv6-списки тех же сервисов (download/<имя>-ips6.txt), подключаются в parse.sh через ip6list.py
+	for svc in CLOUDFLARE:cloudflare DIGITALOCEAN:digitalocean GOOGLE:google HETZNER:hetzner OVH:ovh ROBLOX:roblox TELEGRAM:telegram; do
+		flag="${svc%%:*}_INCLUDE"; name="${svc##*:}"
+		if [[ "${!flag}" == 'y' ]]; then download "download/$name-ips6.txt" "$FORK_BASE/download/$name-ips6.txt" n || true; else rm -f "download/$name-ips6.txt"; fi
+	done
 fi
 
 ./custom-update.sh "$@" || true
