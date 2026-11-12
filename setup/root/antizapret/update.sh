@@ -37,6 +37,10 @@ PARSE_PATH=parse.sh
 WARP_RPZ_LINK=$FORK_BASE/warp-rpz.sh
 WARP_RPZ_PATH=warp-rpz.sh
 
+# parse.sh вызывает ip6list.py (списки include/exclude-ips6): без него parse.sh падает на старой установке
+IP6LIST_LINK=$FORK_BASE/ip6list.py
+IP6LIST_PATH=ip6list.py
+
 # Проверка узлов CDN для kresd@2 (вызывается из doall.sh и по своему таймеру)
 CDN_PIN_LINK=$FORK_BASE/cdn-pin.sh
 CDN_PIN_PATH=cdn-pin.sh
@@ -215,6 +219,7 @@ function download {
 download $UPDATE_PATH $UPDATE_LINK y || true
 download $PARSE_PATH $PARSE_LINK y || true
 download $WARP_RPZ_PATH $WARP_RPZ_LINK y || true
+download $IP6LIST_PATH $IP6LIST_LINK y || true
 download $CDN_PIN_PATH $CDN_PIN_LINK y || true
 download $PROTON_PICK_PATH $PROTON_PICK_LINK y || true
 download $DOALL_PATH $DOALL_LINK y || true
