@@ -201,6 +201,15 @@ route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-r
 	fi
 	echo -n "$IPS6" > result/ips6
 
+	# Готовые IPv6-маршруты для роутеров (Keenetic CLI / MikroTik): Fake-IPv6 fd00:30::/64 + подсети из include-ips6 минус exclude-ips6,
+	# шлюз слоя: WireGuard/AmneziaWG 1.5 - fd29:8::1, AmneziaWG 2 - fd29:9::1, AmneziaWG 3 - fd29:7::1 (работают при IPV6_MODE=c и профиле dual)
+	for layer in 'wireguard fd29:8::1' 'amneziawg2 fd29:9::1' 'amneziawg3 fd29:7::1'; do
+		read -r lname lgw <<< "$layer"
+		{ echo "ipv6 route fd00:30::/64 $lgw"; sed "s|.*|ipv6 route & $lgw|" result/route-ips6.txt; } > "result/keenetic-$lname-routes6.txt"
+	done
+	{ echo "/ipv6 route add dst-address=fd00:30::/64 gateway=fd29:8::1 distance=1 comment=\"antizapret-wireguard-ipv6\""
+	  sed 's|.*|/ipv6 route add dst-address=& gateway=fd29:8::1 distance=1 comment="antizapret-wireguard-ipv6"|' result/route-ips6.txt; } > result/mikrotik-wireguard-routes6.txt
+
 	mkdir -p /etc/openvpn/server/ccd
 	if [[ -f result/DEFAULT ]] && ! diff -q result/DEFAULT /etc/openvpn/server/ccd/DEFAULT; then
 		cp -f result/DEFAULT /etc/openvpn/server/ccd/DEFAULT
