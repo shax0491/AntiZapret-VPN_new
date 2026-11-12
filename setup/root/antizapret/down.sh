@@ -208,6 +208,9 @@ nft flush chain ip antizapret mapping_hook 2>/dev/null
 nft delete chain ip antizapret mapping_hook 2>/dev/null
 nft flush chain ip antizapret warp_hook 2>/dev/null
 nft delete chain ip antizapret warp_hook 2>/dev/null
+# карта mapping6 переживает перезапуск, удаляется только хук (как у IPv4)
+nft flush chain ip6 antizapret mapping_hook 2>/dev/null
+nft delete chain ip6 antizapret mapping_hook 2>/dev/null
 # WARP
 iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j MASQUERADE
 iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j SNAT --to-source $ANTIZAPRET_WARP_IP

@@ -625,6 +625,15 @@ nft add chain ip antizapret mapping_hook '{ type nat hook prerouting priority -5
 nft add rule ip antizapret mapping_hook ip saddr $IP.28.0.0/15 ip daddr $FAKE_IP.0.0/15 dnat to ip daddr map @mapping
 nft add chain ip antizapret warp_hook '{ type filter hook prerouting priority -150 ; policy accept ; }'
 nft add rule ip antizapret warp_hook ip saddr $IP.28.0.0/15 ip daddr $FAKE_IP.0.0/15 ip daddr @warp meta mark set 0x2
+# Fake-IPv6 (IPV6_MODE=c, только split-слои): карта mapping6 и DNAT fake->real, как mapping_hook у IPv4
+if [[ "$ENABLE_IPV6" == 'y' && "$IPV6_MODE" == 'c' ]]; then
+	nft add table ip6 antizapret
+	nft list map ip6 antizapret mapping6 &>/dev/null || nft add map ip6 antizapret mapping6 '{ type ipv6_addr : ipv6_addr ; size 131072 ; }'
+	nft flush chain ip6 antizapret mapping_hook 2>/dev/null || true
+	nft delete chain ip6 antizapret mapping_hook 2>/dev/null || true
+	nft add chain ip6 antizapret mapping_hook '{ type nat hook prerouting priority -50 ; policy accept ; }'
+	nft add rule ip6 antizapret mapping_hook ip6 saddr { fd29:7::/64, fd29:8::/64, fd29:9::/64, fd29:10::/64, fd29:11::/64 } ip6 daddr fd00:30::/64 dnat to ip6 daddr map @mapping6
+fi
 if [[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]]; then
 	if [[ -z "$ANTIZAPRET_WARP_IP" ]]; then
 		iptables -w -t nat -A POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j MASQUERADE

@@ -5,10 +5,15 @@ import re,subprocess,time,argparse,threading,os
 from ipaddress import IPv4Network
 from dnslib import DNSRecord,RCODE,QTYPE,A
 from dnslib.server import DNSServer,DNSHandler,BaseResolver,DNSLogger,TCPServer
+from proxy6 import Fake6
 
 class ProxyResolver(BaseResolver):
-    def __init__(self,dns,dns_port,dns_timeout,fake_cidr,dns_ttl,expire):
+    def __init__(self,dns,dns_port,dns_timeout,fake_cidr,dns_ttl,expire,fake6=None):
         self._env=os.environ.copy()
+        # fake6: Fake6 (Fake-IPv6 для AAAA) или None - тогда AAAA отдаются как есть (поведение до IPv6)
+        self.fake6=fake6
+        if self.fake6:
+            self.fake6.load()
         self.ip_pool={str(x) for x in IPv4Network(fake_cidr).hosts()}
         self.ip_map={}
         # Loading existing fake IP mapping
@@ -86,6 +91,10 @@ class ProxyResolver(BaseResolver):
             time.sleep(self.expire)
             try:
                 self.expire_mapping()
+                if self.fake6:
+                    n6=self.fake6.expire(time.time(),self.expire)
+                    if n6:
+                        print(f"Expired: {n6} fake IPv6")
             except Exception as e:
                 print(f"Error: {e}")
                 print("Restarting: Expire fake IP mapping failed")
@@ -127,6 +136,11 @@ class ProxyResolver(BaseResolver):
             else:
                 data=request.send(self.dns,self.dns_port,tcp=True,timeout=self.dns_timeout)
             reply=DNSRecord.parse(data)
+            if request.q.qtype==QTYPE.AAAA and self.fake6:
+                if not self.fake6.rewrite_aaaa(reply,time.time(),self.dns_ttl):
+                    reply=request.reply()
+                    reply.header.rcode=RCODE.SERVFAIL
+                    return reply
             if request.q.qtype==QTYPE.A:
                 now=time.time()
                 for record in reply.rr:
@@ -155,6 +169,8 @@ if __name__=="__main__":
     p.add_argument("--expire",type=int,default=3600,help="Seconds of inactivity before fake IP is removed (default: 3600)")
     p.add_argument("--proxy",default="127.4.4.4:53",help="Local Fake IP proxy listen address:port (default: 127.4.4.4:53)")
     p.add_argument("--warp",default="127.5.5.5:53",help="Local WARP proxy listen address:port (default: 127.5.5.5:53)")
+    p.add_argument("--ipv6",action="store_true",default=os.environ.get("AZ_FAKE6")=="1",help="Fake-IPv6 for AAAA (default: off, env AZ_FAKE6=1)")
+    p.add_argument("--fake6-cidr",default="fd00:30::/64",help="Fake IPv6 CIDR (default: fd00:30::/64)")
     p.add_argument("--log",default="truncated,error",help="Log hooks to enable (default: +truncated,+error,-request,-reply,-recv,-send,-data)")
     p.add_argument("--log-prefix",action="store_true",default=False,help="Log prefix (timestamp/handler/resolver) (default: False)")
     args=p.parse_args()
@@ -166,7 +182,7 @@ if __name__=="__main__":
     args.warp_port=int(args.warp_port or 53)
     TCPServer.request_queue_size=128
     print("Starting...")
-    resolver=ProxyResolver(args.dns,args.dns_port,args.dns_timeout,args.fake_cidr,args.dns_ttl,args.expire)
+    resolver=ProxyResolver(args.dns,args.dns_port,args.dns_timeout,args.fake_cidr,args.dns_ttl,args.expire,Fake6(args.fake6_cidr) if args.ipv6 else None)
     logger=DNSLogger(args.log,prefix=args.log_prefix)
     def start_server(address,port,tcp=False):
         server=DNSServer(resolver,port=port,address=address,tcp=tcp,logger=logger,handler=DNSHandler)
