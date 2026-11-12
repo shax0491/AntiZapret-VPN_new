@@ -106,6 +106,26 @@ if [[ "$WIREGUARD" == 'y' ]]; then
 	done
 	echo
 fi
+# Необязательный проброс IPv6 (Dual-Stack клиентов): нужен рабочий IPv6 и на прокси, и на сервере АнтиЗапрета
+DEFAULT_IP6="$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | grep -oP 'src \K\S+' | head -1)"
+OPENVPN_IP6=''
+WIREGUARD_IP6=''
+if [[ -n "$DEFAULT_IP6" ]]; then
+	if [[ "$OPENVPN_UDP" == 'y' || "$OPENVPN_TCP" == 'y' ]]; then
+		while read -rp 'Enter OpenVPN server IPv6 address (optional, empty = IPv4 only): ' -e OPENVPN_IP6
+		do
+			[[ -z "$OPENVPN_IP6" || -n $(getent ahostsv6 "$OPENVPN_IP6") ]] && break
+		done
+		echo
+	fi
+	if [[ "$WIREGUARD" == 'y' ]]; then
+		while read -rp 'Enter WireGuard/AmneziaWG server IPv6 address (optional, empty = IPv4 only): ' -e WIREGUARD_IP6
+		do
+			[[ -z "$WIREGUARD_IP6" || -n $(getent ahostsv6 "$WIREGUARD_IP6") ]] && break
+		done
+		echo
+	fi
+fi
 echo 'Warning! SSH protection may block your IP after 5 logins/minute!'
 until [[ "$SSH_PROTECTION" =~ (y|n) ]]; do
 	read -rp 'Enable SSH brute-force protection? [y/n]: ' -e -i y SSH_PROTECTION
@@ -433,6 +453,36 @@ if [[ -n "$OPENVPN_IP" ]]; then
 fi
 if [[ -n "$WIREGUARD_IP" && "$WIREGUARD_IP" != "$OPENVPN_IP" ]]; then
 	iptables -w -t nat -A POSTROUTING -d $WIREGUARD_IP -j SNAT --to-source $DEFAULT_IP
+fi
+
+# IPv6 (необязательно): те же порты, DNAT на IPv6-адрес сервера АнтиЗапрета и SNAT на IPv6 прокси.
+# MSS режется по PMTU (правило FORWARD выше), так что внутри туннелей Dual-Stack MTU подстраивается сам.
+dnat6() { # proto port target_ip6 target_port
+	ip6tables -w -t nat -A PREROUTING -p "$1" --dport "$2" -j DNAT --to-destination "[$3]:$4"
+}
+if [[ -n "$OPENVPN_IP6" ]]; then
+	if [[ "$OPENVPN_TCP" == 'y' ]]; then
+		dnat6 tcp 80 "$OPENVPN_IP6" 50080; dnat6 tcp 443 "$OPENVPN_IP6" 50443
+		dnat6 tcp 504 "$OPENVPN_IP6" 50443; dnat6 tcp 508 "$OPENVPN_IP6" 50080
+		dnat6 tcp 50080 "$OPENVPN_IP6" 50080; dnat6 tcp 50443 "$OPENVPN_IP6" 50443
+	fi
+	if [[ "$OPENVPN_UDP" == 'y' ]]; then
+		dnat6 udp 80 "$OPENVPN_IP6" 50080; dnat6 udp 443 "$OPENVPN_IP6" 50443
+		dnat6 udp 504 "$OPENVPN_IP6" 50443; dnat6 udp 508 "$OPENVPN_IP6" 50080
+		dnat6 udp 50080 "$OPENVPN_IP6" 50080; dnat6 udp 50443 "$OPENVPN_IP6" 50443
+	fi
+	ip6tables -w -t nat -A POSTROUTING -d "$OPENVPN_IP6" -j SNAT --to-source "$DEFAULT_IP6"
+fi
+if [[ -n "$WIREGUARD_IP6" ]]; then
+	dnat6 udp 540 "$WIREGUARD_IP6" 51443; dnat6 udp 580 "$WIREGUARD_IP6" 51080
+	dnat6 udp 51080 "$WIREGUARD_IP6" 51080; dnat6 udp 51443 "$WIREGUARD_IP6" 51443
+	dnat6 udp 52080 "$WIREGUARD_IP6" 51080; dnat6 udp 52443 "$WIREGUARD_IP6" 51443
+	dnat6 udp 544 "$WIREGUARD_IP6" 53443; dnat6 udp 584 "$WIREGUARD_IP6" 53080
+	dnat6 udp 53080 "$WIREGUARD_IP6" 53080; dnat6 udp 53443 "$WIREGUARD_IP6" 53443
+	ip6tables -w -t nat -A PREROUTING -p udp --dport 51900:51999 -j DNAT --to-destination "[$WIREGUARD_IP6]"
+	if [[ "$WIREGUARD_IP6" != "$OPENVPN_IP6" ]]; then
+		ip6tables -w -t nat -A POSTROUTING -d "$WIREGUARD_IP6" -j SNAT --to-source "$DEFAULT_IP6"
+	fi
 fi
 
 # Сохранение новых правил iptables

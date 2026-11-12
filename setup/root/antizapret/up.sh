@@ -606,6 +606,14 @@ if [[ "$ATTACK_PROTECTION" == 'y' ]]; then
 	iptables -w -I INPUT 5 -i $DEFAULT_INTERFACE -m conntrack --ctstate NEW -m set --match-set antizapret-block src -j DROP
 	iptables -w -I INPUT 6 -i $DEFAULT_INTERFACE -m conntrack --ctstate NEW -j SET --add-set antizapret-watch src,dst --exist
 	ipset create antizapret-allow6 hash:net family inet6 -exist
+	{
+		echo 'flush antizapret-allow6'
+		if [[ -f result/allow-ips6.txt ]]; then
+			while read -r line; do
+				echo "add antizapret-allow6 $line -exist"
+			done < result/allow-ips6.txt
+		fi
+	} | ipset restore
 	ipset create antizapret-block6 hash:ip timeout 600 family inet6 -exist
 	ipset create antizapret-watch6 hash:ip,port timeout 600 family inet6 -exist
 	ip6tables -w -I INPUT 2 -i $DEFAULT_INTERFACE -m set --match-set antizapret-allow6 src -j ACCEPT

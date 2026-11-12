@@ -258,6 +258,17 @@ route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-r
 				echo "add antizapret-allow $cidr -exist"
 			done < result/allow-ips.txt
 		} | ipset restore
+
+		sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d' config/allow-ips6.txt 2>/dev/null | sort -u \
+		| awk -F/ 'NF==2 && $1 ~ /:/ && $2>=1 && $2<=128 {print}' > result/allow-ips6.txt
+		echo "$(wc -l < result/allow-ips6.txt) - allow-ips6.txt"
+		{
+			echo 'create antizapret-allow6 hash:net family inet6 -exist'
+			echo 'flush antizapret-allow6'
+			while read -r cidr; do
+				echo "add antizapret-allow6 $cidr -exist"
+			done < result/allow-ips6.txt
+		} | ipset restore
 	fi
 fi
 
