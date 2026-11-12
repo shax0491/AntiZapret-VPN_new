@@ -427,14 +427,88 @@ git clone https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/azr && cd /tmp
 Откат: `systemctl disable --now az-egress-monitor az-egress-guard` и `/root/az-guard/…/restore.sh` (подробно — `az-guard/README.md`).
 Повторный `setup.sh --update` берёт ответы из `/root/antizapret/setup` (`AZ_DUALSTACK`, `AZ_EGRESS_GUARD`, `AZ_REVERSE_TUNNEL`).
 
-### Mihomo (домашний роутер)
+### IPv6: режимы A / B / C
 
-Конфиг Mihomo собирается на сервере-сборщике (`/opt/mh-app`) из шаблона и раздаётся роутерам. Режимы:
+По умолчанию IPv6 **выключен** (`IPV6_MODE=a`): клиентам отдаются только IPv4-адреса, пустые AAAA защищают от утечек IPv6 мимо туннеля. После установки всё работает как раньше, только по IPv4. Dual-Stack включается явно в `/root/antizapret/setup` (или в админ-панели: «Настройки AntiZapret», блок IPv6) и применяется перезапуском `systemctl restart antizapret`.
 
-* **Только IPv4 (по умолчанию, рекомендуется).** `mihomo/mh-ipv6.sh off` → `ipv6: false` в `ipv6:`/`dns.ipv6:`. Роутер не раздаёт IPv6 в LAN, v6-утечки нет.
-* **Dual-Stack.** `mihomo/mh-ipv6.sh on` — только если провайдер выдаёт префикс (DHCPv6-PD) **и** роутер раздаёт IPv6 в LAN через Mihomo. Если раздать IPv6 без Mihomo, v6-трафик устройств пойдёт мимо VPN (проверено на практике: утечка).
+| Режим | Что получает клиент |
+|---|---|
+| `a` | Только IPv4. AAAA пустые, `ENABLE_IPV6=n`. Режим по умолчанию и режим аварийного отката |
+| `b` | Full-слои (`vpn`, подсети `fd28:*`) получают настоящие AAAA и маршрут `::/0`. Split-слои (`antizapret`, подсети `fd29:*`) остаются без IPv6 |
+| `c` | Режим b + Fake-IPv6 для заблокированных доменов в split-слоях |
 
-Сайты-чекеры IP/DNS (`ifconfig.me`, `checkip.amazonaws.com`, `ident.me`, `ipinfo.io`, `whoer.net`, `dnsleaktest.com` и др.) принудительно идут через «Авто — самый быстрый» с DNS через 1.1.1.1 внутри туннеля — чтобы чекер показывал IP выхода, а не домашний. Остальной интернет по умолчанию «Напрямую» (так задумано: РФ-ресурсы работают без VPN).
+Как работает режим `c`:
+
+1. `kresd@1` (split) отправляет AAAA заблокированных доменов в `proxy.py`. Тот выдаёт Fake-IPv6 из `fd00:30::/64` и кладёт пару «fake → настоящий» в `nft ip6 antizapret mapping6` (`@mapping6`).
+2. DNAT-хук `mapping_hook` (prerouting) подменяет `fd00:30::N` на настоящий адрес для клиентов `fd29:*`.
+3. Остальные AAAA в split пустые (кроме `.ru`/`.su`/`.рф`): клиент без IPv6 у провайдера не зависает.
+4. Full-слои получают настоящий AAAA, выход идёт через `MASQUERADE` в `ip6tables` через интерфейс выхода.
+5. Блок «AAAA NODATA» панели в `custom.lua`/`custom2.lua` в режимах b/c отключается переменной `ipv6_dual`.
+6. Домены Instagram/Meta (`instagram.com`, `cdninstagram.com`, `fbcdn.net`, `facebook.com` и все их поддомены) всегда получают пустой AAAA: их IPv6-кластеры с части узлов виснут или режутся через Proton, а по IPv4 всё открывается сразу.
+
+Эффективный режим пишется в `/etc/knot-resolver/ipv6-mode`, состояние в `/run/antizapret-ipv6.state` (`requested`, `effective`, `egress`, `interface`, `interface_full`, `reason`). Панель показывает его бейджем: «Dual-Stack (Proton/Native/…)», «Защита от утечек (Только IPv4)» или красный «Ошибка выхода (Откат на IPv4)».
+
+### IPv6: выход (`IPV6_EGRESS`)
+
+| Значение | Куда уходит IPv6 |
+|---|---|
+| `native` | Через родной IPv6 хостера (интерфейс по умолчанию). Нужен рабочий IPv6 у VPS |
+| `proton` | Через WireGuard-интерфейс Proton. Split-слой идёт через `warp-antizapret`, full-слой через `warp-vpn` (свои таблицы маршрутизации 13337/13338 и правила `ip -6 rule`, `MASQUERADE` на каждом интерфейсе). Если `warp-antizapret`/`warp-vpn` не поднят или не передаёт IPv6, используется запасной интерфейс `proton` (`IPV6_PROTON_INTERFACE`) |
+| `warp` | Как `proton`, но интерфейс `warp-antizapret` (`IPV6_WARP_INTERFACE`), Cloudflare WARP |
+| `relay` | Через отдельный интерфейс-ретранслятор (`IPV6_RELAY_INTERFACE`, по умолчанию `v6up`), например туннель на другой сервер |
+
+Для `proton` и `warp` в туннеле должны быть IPv6-адрес клиента (у Proton это `2a07:b944::2:2/128`) и `::/0` в `AllowedIPs`. `up.sh` берёт адрес из конфига интерфейса и добавляет его, если его нет, а `::/0` в `AllowedIPs` пишет только когда IPv6 включён (при `disable_ipv6=1` `wg-quick` с `::/0` падает).
+
+**Автоматический откат (fallback).** После подъёма `up.sh` проверяет выход: `ping6` до `2606:4700:4700::1111` и `2001:4860:4860::8888` с интерфейса выхода. Если выход не отвечает, эффективный режим принудительно становится `a`, причина пишется в `reason=` (бейдж становится красным). Клиенты при этом остаются на IPv4 без утечек.
+
+**Не у всех серверов Proton есть IPv6.** В списке серверов Proton у таких серверов есть признак `IPv6`. Если его нет (например, у латвийских серверов), IPv6 в туннеле не проходит, и надо выпустить ключ на сервер с IPv6 (Finland, Germany, France и др.).
+
+**VLESS (`xray-az`) и Proton.** Если на узле стоит `xray-az` (VLESS+Reality, порты 8443 «прямой» и 8445 «через Proton»), его исходящие сокеты для Proton привязаны к интерфейсу `proton` (`sockopt.interface`). Скрипт `xray-proton-v6.sh 1`, запускаемый на узле:
+
+- добавляет в `/etc/wireguard/proton.conf` IPv6-адрес, `::/0` и маршрут/правило IPv6 в таблице 51820 (`Table = off`, дефолтный маршрут хоста не затрагивается);
+- переключает исходящий `proton` на `UseIPv4v6` (IPv4 в приоритете, IPv6 при необходимости) и ставит метку сокета `0x51`;
+- включает killswitch: `iptables`/`ip6tables -I OUTPUT -m mark --mark 0x51 ! -o proton -j DROP` (он же прописан в `up.sh`/`down.sh`): трафик VLESS-Proton не может выйти через сырой интерфейс хостера. Если IPv6 в `proton` недоступен, `xray-az` ходит по IPv4 внутри `proton`.
+
+`xray-proton-v6.sh 0` оставляет только IPv4 (`UseIPv4`) и killswitch, для узлов, где ключ Proton без IPv6. Прямой выход (8443) в `xray-az` работает строго по IPv4 (`domainStrategy: UseIPv4`), домены Meta/Instagram и Anthropic/Claude идут по IPv4 в обоих режимах.
+
+### IPv6: списки и профили клиентов
+
+- `config/include-ips6.txt` и `config/exclude-ips6.txt` (плюс `download/*ips6.txt`) собирает `ip6list.py` в `result/route-ips6.txt`: подсети агрегируются, исключения вычитаются. В режиме c маршруты попадают в `result/DEFAULT` (OpenVPN) и в `AllowedIPs` split-профилей WG/AWG. Применить: `/root/antizapret/doall.sh ip`. Префиксы Meta (`2a03:2880::/32`, `2620:0:1c00::/40`) в списке намеренно отсутствуют.
+- `config/allow-ips6.txt`: IPv6-адреса и подсети, исключённые из защиты от сканирования (аналог `allow-ips.txt`).
+- `config/ipv6-profile.txt`, строки `имя ipv4|dual`. Профиль `ipv4` не даёт IPv6 (в WG/AWG нет v6-адреса и IPv6 в `AllowedIPs`, в OpenVPN `push-remove route-ipv6`, на Windows `block-ipv6`). `IPV6_PROFILE_DEFAULT` задаёт профиль по умолчанию. Применяется при пересоздании профиля (`client.sh`) и подключении OpenVPN.
+- Подсети слоёв: OpenVPN `fd29:10::/64` (antizapret-udp), `fd29:11::/64` (-tcp), `fd28:10::/64` и `fd28:11::/64` (vpn-udp/-tcp); WG и AWG 1.5 `fd29:8::/64` / `fd28:8::/64`; AWG 2.0 `fd29:9::/64` / `fd28:9::/64`; AWG 3.0 `fd29:7::/64` / `fd28:7::/64` (адреса на `awg1` ставит `awg3-up.sh` только в режимах b/c).
+
+В админ-панели профиль выбирается двумя вариантами: «Только IPv4» и «Dual-Stack (IPv4 + IPv6)». Профиль можно задать для OpenVPN, AWG 1.5, AWG 2.0 и AWG 3.0.
+
+### IPv6: роутеры Keenetic и MikroTik
+
+Для режима `c` на роутере нужно завернуть в туннель Fake-IPv6 `fd00:30::/64` и IPv6-подсети из `include-ips6.txt`. Готовые файлы собирает `parse.sh` в `/root/antizapret/result/`, их раздаёт панель («Результаты маршрутов»). Шлюзы слоёв: WireGuard/AmneziaWG 1.5 `fd29:8::1`, AmneziaWG 2.0 `fd29:9::1`, AmneziaWG 3.0 `fd29:7::1`.
+
+**Keenetic.** В веб-импорте маршрутов IPv6 нет, они добавляются через CLI:
+
+1. Включите на WAN-подключении IPv6/DHCPv6 (делегирование префикса), если провайдер его выдаёт, и убедитесь, что на AWG/WireGuard-подключении Keenetic есть IPv6-адрес из подсети слоя.
+2. Откройте веб-консоль CLI: `http://192.168.1.1/a`.
+3. Для одного маршрута нажмите «+ Добавить» в разделе IPv6-маршрутов: сеть `fd00:30::/64`, шлюз — шлюз слоя (например `fd29:8::1`) или интерфейс туннеля.
+4. Для массового добавления вставьте в консоль содержимое `keenetic-<слой>-routes6.txt` (строки `ipv6 route fd00:30::/64 fd29:8::1 auto`, `ipv6 route <подсеть> fd29:8::1 auto`, в конце `system configuration save`). В панели есть кнопка «Копировать для CLI».
+5. Проверьте: `show ipv6 route`, затем с клиента `ping -6 2606:4700:4700::1111` и открытие IPv6-сайта.
+
+Флаг `auto` не проверен по документации Keenetic. Если консоль ругается на него, уберите `auto` из строк.
+
+**MikroTik.** Файл `mikrotik-wireguard-routes6.txt` содержит команды вида `/ipv6 route add dst-address=fd00:30::/64 gateway=fd29:8::1 distance=1 comment="antizapret-wireguard-ipv6"`. Вставьте их в терминал RouterOS (или импортируйте `/import file-name=...`); на WireGuard-интерфейсе MikroTik должен быть IPv6-адрес из `fd29:8::/64`. Для других слоёв замените шлюз на `fd29:9::1` или `fd29:7::1`.
+
+### IPv6: проверка и откат
+
+```
+cat /etc/knot-resolver/ipv6-mode /run/antizapret-ipv6.state
+dig +short AAAA instagram.com @127.1.1.1   # пусто (Meta всегда по IPv4)
+dig +short AAAA example.org @127.1.1.1     # fd00:30::N для заблокированных доменов (split, режим c)
+nft list map ip6 antizapret mapping6
+curl -6 --interface proton https://ifconfig.co/ip
+```
+
+Откат: в `/root/antizapret/setup` поставить `ENABLE_IPV6=n` и `IPV6_MODE=a`, затем `systemctl restart antizapret`.
+
+Известные ограничения: `relay` требует заранее настроенного интерфейса; клиентские профили AWG 3.0 панель пока выдаёт без IPv6; у части серверов Proton нет IPv6 (см. выше).
 
 ### Reverse-Tunnel по шагам (relay в РФ ↔ exit за рубежом)
 
@@ -443,7 +517,7 @@ git clone https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/azr && cd /tmp
 3. Проверьте статус (handshake, state `standby`), затем **«Активировать»** — relay переключается на адрес туннеля, транспорт узла становится `reverse`.
 4. Проверка: `wg show azr1 latest-handshakes` на обоих концах, `az-reverse-test.sh`. Откат: вернуть транспорт узла в `auto`.
 
-> Статус: механизм реверса и Mihomo-v6 проверены на тестовом узле, но на домашнем роутере **не развёрнуты в боевом режиме** — на роутере работает только штатный Mihomo.
+> Статус: механизм реверса проверен на тестовом узле, но в боевом режиме на домашнем роутере **не развёрнут**.
 
 ## 🌍 Настроить прокси-сервер
 
@@ -464,6 +538,12 @@ bash <(wget -qO- --no-hsts --inet4-only https://raw.githubusercontent.com/shax04
 ```bash
 /root/antizapret/parse.sh ip
 ```
+
+**Dual-Stack (IPv6) через прокси.** `proxy.sh` по умолчанию пробрасывает только IPv4. Если на прокси-сервере есть рабочий IPv6, скрипт дополнительно спросит IPv6-адрес сервера АнтиЗапрета (отдельно для OpenVPN и для WireGuard/AmneziaWG; пустой ответ оставляет только IPv4) и сделает через `ip6tables` DNAT тех же портов и SNAT на IPv6 прокси. Это нужно, чтобы клиенты режимов `b`/`c` (Fake-IPv6 `fd00:30::/64`, слои `fd29::/64` и `fd28::/64`) ходили по IPv6 и через прокси. Условия: на сервере АнтиЗапрета включён IPv6 (`IPV6_MODE` `b` или `c`) и его IPv6 доступен с прокси; в профилях подключения замените IPv6-адрес/домен сервера на адрес прокси.
+
+Про MTU: внутри туннелей Dual-Stack MTU меньше, чем у обычного соединения. На прокси стоит `TCPMSS --clamp-mss-to-pmtu` в `iptables` и `ip6tables` (таблица `mangle`, цепочка `FORWARD`), поэтому TCP-сессии клиентов подстраиваются под реальный PMTU, а IPv6-пакеты не должны фрагментироваться. Если у прокси MTU меньше 1500, уменьшите MTU в конфигурациях OpenVPN и WireGuard, как описано в пункте 3. Минимальный MTU IPv6 — 1280.
+
+IPv6-адреса прокси-сервера, которые должны обходить защиту от сканирования на сервере АнтиЗапрета, записываются в `/root/antizapret/config/allow-ips6.txt` (формат `адрес/длина`), затем `/root/antizapret/parse.sh ip`.
 
 ---
 
@@ -548,91 +628,3 @@ GeoHide (пункт "8) GeoHide \*\*" для AntiZapret VPN и "9) GeoHide \*\*"
 bash <(wget -qO- https://censorcheck.vrnt.xyz) --mode dpi
 ```
 На сам VPN-сервер он не устанавливается и не запускается автоматически: сервер и так расположен вне зоны блокировок, поэтому результат проверки на нём не даёт полезной информации о том, что видит реальный клиент.
-
-
----
-
-## IPv6 (Dual-Stack)
-
-По умолчанию IPv6 **выключен** (`IPV6_MODE=a`): клиентам отдаются только IPv4-адреса, пустые AAAA защищают от утечек IPv6 мимо туннеля. Из коробки после установки всё работает как раньше, только по IPv4. Dual-Stack включается явно в `/root/antizapret/setup` (или в админ-панели: «Настройки AntiZapret», блок IPv6) и применяется перезапуском `systemctl restart antizapret`.
-
-### Режимы `IPV6_MODE`
-
-| Режим | Что получает клиент |
-|---|---|
-| `a` | Только IPv4. AAAA пустые, `ENABLE_IPV6=n`. Режим по умолчанию и режим аварийного отката |
-| `b` | Full-слои (`vpn`, подсети `fd28:*`) получают настоящие AAAA и маршрут `::/0`. Split-слои (`antizapret`, подсети `fd29:*`) остаются без IPv6 |
-| `c` | Режим b + Fake-IPv6 для заблокированных доменов в split-слоях |
-
-Как работает режим `c`:
-
-1. `kresd@1` (split) отправляет AAAA заблокированных доменов в `proxy.py`. Тот выдаёт Fake-IPv6 из `fd00:30::/64` и кладёт пару «fake → настоящий» в `nft ip6 antizapret mapping6` (`@mapping6`).
-2. DNAT-хук `mapping_hook` (prerouting) подменяет `fd00:30::N` на настоящий адрес для клиентов `fd29:*`.
-3. Остальные AAAA в split пустые (кроме `.ru`/`.su`/`.рф`): клиент без IPv6 у провайдера не зависает.
-4. Full-слои получают настоящий AAAA, выход идёт через `MASQUERADE` в `ip6tables` через интерфейс выхода.
-5. Блок «AAAA NODATA» панели в `custom.lua`/`custom2.lua` в режимах b/c отключается переменной `ipv6_dual`.
-
-Эффективный режим пишется в `/etc/knot-resolver/ipv6-mode`, состояние в `/run/antizapret-ipv6.state` (`requested`, `effective`, `egress`, `interface`, `interface_full`, `reason`). Панель показывает его бейджем: «Dual-Stack (Proton/Native/…)», «Защита от утечек (Только IPv4)» или красный «Ошибка выхода (Откат на IPv4)».
-
-### Выход IPv6: `IPV6_EGRESS`
-
-| Значение | Куда уходит IPv6 |
-|---|---|
-| `native` | Через родной IPv6 хостера (интерфейс по умолчанию). Нужен рабочий IPv6 у VPS |
-| `proton` | Через WireGuard-интерфейс Proton. Split-слой идёт через `warp-antizapret`, full-слой через `warp-vpn` (свои таблицы маршрутизации 13337/13338 и правила `ip -6 rule`, `MASQUERADE` на каждом интерфейсе). Если `warp-antizapret`/`warp-vpn` не поднят или не передаёт IPv6, используется запасной интерфейс `proton` (`IPV6_PROTON_INTERFACE`) |
-| `warp` | Как `proton`, но интерфейс `warp-antizapret` (`IPV6_WARP_INTERFACE`), Cloudflare WARP |
-| `relay` | Через отдельный интерфейс-ретранслятор (`IPV6_RELAY_INTERFACE`, по умолчанию `v6up`), например туннель на другой сервер |
-
-Для `proton` и `warp` в туннеле должны быть IPv6-адрес клиента (у Proton это `2a07:b944::2:2/128`) и `::/0` в `AllowedIPs`. `up.sh` берёт адрес из конфига интерфейса и добавляет его, если его нет, а `::/0` в `AllowedIPs` пишет только когда IPv6 включён (при `disable_ipv6=1` `wg-quick` с `::/0` падает).
-
-**Автоматический откат.** После подъёма `up.sh` проверяет выход: `ping6` до `2606:4700:4700::1111` и `2001:4860:4860::8888` с интерфейса выхода. Если выход не отвечает, эффективный режим принудительно становится `a`, причина пишется в `reason=` (бейдж становится красным). Клиенты при этом остаются на IPv4 без утечек.
-
-**Не у всех серверов Proton есть IPv6.** В списке серверов Proton у таких серверов есть признак `IPv6`. Если на сервере его нет (например, у латвийских), IPv6 в туннеле не проходит, и надо выпустить ключ на сервер с IPv6 (Finland, Germany, France и др.).
-
-### VLESS для Mihomo (`xray-az`) и Proton
-
-Если на узле стоит `xray-az` (VLESS+Reality, порты 8443 «прямой» и 8445 «через Proton»), его исходящие сокеты для Proton привязаны к интерфейсу `proton` (`sockopt.interface`). Скрипт `xray-proton-v6.sh 1` запускается на узле и делает следующее:
-
-- добавляет в `/etc/wireguard/proton.conf` IPv6-адрес, `::/0` и маршрут/правило IPv6 в таблице 51820 (`Table = off`, дефолтный маршрут хоста не затрагивается);
-- переключает исходящий `proton` на `UseIPv4v6` (IPv4 в приоритете, IPv6 при необходимости) и ставит метку сокета `0x51`;
-- включает killswitch: `iptables`/`ip6tables -I OUTPUT -m mark --mark 0x51 ! -o proton -j DROP`. Он же прописан в `up.sh`/`down.sh`. Трафик VLESS-Proton ни при каких условиях не может выйти через сырой интерфейс хостера. Если IPv6 в `proton` недоступен, `xray-az` ходит по IPv4 внутри `proton`.
-
-`xray-proton-v6.sh 0` оставляет только IPv4 (`UseIPv4`) и killswitch (для узлов, где ключ Proton без IPv6). Прямой inbound (8443) выходит по обычному IPv4 и IPv6 узла.
-
-### Списки и профили
-
-- `config/include-ips6.txt` и `config/exclude-ips6.txt` (плюс `download/*ips6.txt`) собирает `ip6list.py` в `result/route-ips6.txt`: подсети агрегируются, исключения вычитаются. В режиме c маршруты попадают в `result/DEFAULT` (OpenVPN) и в `AllowedIPs` split-профилей WG/AWG. Применить: `/root/antizapret/doall.sh ip`.
-- `config/ipv6-profile.txt`, строки `имя ipv4|dual`. Профиль `ipv4` не даёт IPv6 (в WG/AWG нет v6-адреса и IPv6 в `AllowedIPs`, в OpenVPN `push-remove route-ipv6`, на Windows `block-ipv6`). `IPV6_PROFILE_DEFAULT` задаёт профиль по умолчанию. Применяется при пересоздании профиля (`client.sh`) и подключении OpenVPN.
-- Подсети слоёв: OpenVPN `fd29:10::/64` (antizapret-udp), `fd29:11::/64` (-tcp), `fd28:10::/64` и `fd28:11::/64` (vpn-udp/-tcp); WG и AWG 1.5 `fd29:8::/64` / `fd28:8::/64`; AWG 2.0 `fd29:9::/64` / `fd28:9::/64`; AWG 3.0 `fd29:7::/64` / `fd28:7::/64` (адреса на `awg1` ставит `awg3-up.sh` только в режимах b/c).
-
-В админ-панели профиль выбирается двумя вариантами: «Только IPv4» и «Dual-Stack (IPv4 + IPv6)». Профиль можно задать для OpenVPN, AWG 1.5, AWG 2.0 и AWG 3.0.
-
-### Роутеры
-
-Для режима `c` на роутере нужно завернуть в туннель Fake-IPv6 `fd00:30::/64` и IPv6-подсети из `include-ips6.txt`. Готовые файлы собирает `parse.sh` в `/root/antizapret/result/`, их раздаёт панель («Результаты маршрутов»). Шлюзы слоёв: WireGuard/AmneziaWG 1.5 `fd29:8::1`, AmneziaWG 2.0 `fd29:9::1`, AmneziaWG 3.0 `fd29:7::1`.
-
-**Keenetic.** В веб-импорте маршрутов IPv6 нет, они добавляются через CLI:
-
-1. Включите на WAN-подключении IPv6/DHCPv6 (делегирование префикса), если провайдер его выдаёт, и убедитесь, что на AWG/WireGuard-подключении Keenetic есть IPv6-адрес из подсети слоя.
-2. Откройте веб-консоль CLI: `http://192.168.1.1/a`.
-3. Для одного маршрута нажмите «+ Добавить» в разделе IPv6-маршрутов: сеть `fd00:30::/64`, шлюз — шлюз слоя (например `fd29:8::1`) или интерфейс туннеля.
-4. Для массового добавления вставьте в консоль содержимое `keenetic-<слой>-routes6.txt` (строки `ipv6 route fd00:30::/64 fd29:8::1 auto`, `ipv6 route <подсеть> fd29:8::1 auto`, в конце `system configuration save`). В панели есть кнопка «Копировать для CLI».
-5. Проверьте: `show ipv6 route`, затем с клиента `ping -6 2606:4700:4700::1111` и открытие IPv6-сайта.
-
-Флаг `auto` не проверен по документации Keenetic. Если консоль ругается на него, уберите `auto` из строк.
-
-**MikroTik.** Файл `mikrotik-wireguard-routes6.txt` содержит команды вида `/ipv6 route add dst-address=fd00:30::/64 gateway=fd29:8::1 distance=1 comment="antizapret-wireguard-ipv6"`. Вставьте их в терминал RouterOS (или импортируйте `/import file-name=...`); на WireGuard-интерфейсе MikroTik должен быть IPv6-адрес из `fd29:8::/64`. Для других слоёв замените шлюз на `fd29:9::1` или `fd29:7::1`.
-
-### Проверка и откат
-
-```
-cat /etc/knot-resolver/ipv6-mode /run/antizapret-ipv6.state
-dig +short AAAA instagram.com @127.1.1.1   # fd00:30::N (split, режим c)
-dig +short AAAA google.com @127.2.2.2      # настоящий AAAA (full)
-nft list map ip6 antizapret mapping6
-curl -6 --interface proton https://ifconfig.co/ip
-```
-
-Откат: в `/root/antizapret/setup` поставить `ENABLE_IPV6=n` и `IPV6_MODE=a`, затем `systemctl restart antizapret`.
-
-Известные ограничения: `relay` требует заранее настроенного интерфейса; клиентские профили AWG 3.0 панель пока выдаёт без IPv6; у части серверов Proton нет IPv6 (см. выше).
