@@ -12,6 +12,14 @@ WARP_PROVIDER="${WARP_PROVIDER:-cloudflare}"
 IPV6_MODE="${IPV6_MODE:-a}"
 printf '%s\n' "$IPV6_MODE" > /etc/knot-resolver/ipv6-mode
 
+# ::/0 в AllowedIPs туннелей warp-antizapret/warp-vpn только когда IPv6 включён: при disable_ipv6=1 (режим a)
+# wg-quick падает на "ip -6 route add ::/0" ("IPv6 is disabled on nexthop device") и туннель не поднимается
+WARP_ALLOWED_IPS='0.0.0.0/0'
+if [[ "${ENABLE_IPV6:-$([[ "$IPV6_MODE" == 'a' ]] && echo n || echo y)}" == 'y' && "$IPV6_MODE" != 'a' ]]; then
+	WARP_ALLOWED_IPS='0.0.0.0/0, ::/0'
+	sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 2>/dev/null || true
+fi
+
 wg_endpoint() {
 	local host="$1" port="$2"
 	if [[ "$host" == *:* && "$host" != \[* ]]; then
@@ -94,7 +102,7 @@ PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 prior
 
 [Peer]
 PublicKey = $PROTON_ANTIZAPRET_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = $WARP_ALLOWED_IPS
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
@@ -144,7 +152,7 @@ PostDown = ip rule del from $IP.29.0.0/16 ${ANTIZAPRET_FWMARK}lookup 13335 prior
 
 [Peer]
 PublicKey = $ANTIZAPRET_WARP_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = $WARP_ALLOWED_IPS
 PersistentKeepalive = 15
 Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 
@@ -201,7 +209,7 @@ PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 100
 
 [Peer]
 PublicKey = $PROTON_VPN_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = $WARP_ALLOWED_IPS
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
@@ -251,7 +259,7 @@ PostDown = ip rule del from $IP.28.0.0/16 ${VPN_FWMARK}lookup 13336 priority 100
 
 [Peer]
 PublicKey = $VPN_WARP_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = $WARP_ALLOWED_IPS
 PersistentKeepalive = 15
 Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 
@@ -350,7 +358,7 @@ PostDown = ip rule del uidrange $DNS_WARP_UID-$DNS_WARP_UID lookup 3000 priority
 
 [Peer]
 PublicKey = $DNS_WARP_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0, ::/0
+AllowedIPs = $WARP_ALLOWED_IPS
 PersistentKeepalive = 15
 Endpoint = $DNS_WARP_ENDPOINT" > $DNS_WARP_PATH
 
