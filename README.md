@@ -510,6 +510,8 @@ curl -6 --interface proton https://ifconfig.co/ip
 
 Известные ограничения: `relay` требует заранее настроенного интерфейса; клиентские профили AWG 3.0 панель пока выдаёт без IPv6; у части серверов Proton нет IPv6 (см. выше).
 
+**Нативный IPv6 у HostVDS (OpenStack).** Адрес и шлюз приходят по RA (SLAAC), поэтому в systemd-networkd на интерфейсе должны стоять `LinkLocalAddressing=ipv6` и `IPv6AcceptRA=yes` (например, в `/etc/systemd/network/10-all.network`), а не `no`: иначе после перезагрузки нет ни адреса, ни маршрута. При `forwarding=1` RA принимает только networkd, одного `accept_ra=2` в sysctl недостаточно. Проверка: `ip -6 route show default` и `curl -6 https://ifconfig.co/ip`. После `networkctl reload` systemd-networkd удаляет «чужие» правила `ip rule`, в том числе `oif proton`: после него перезапустите `wg-quick@proton`.
+
 ### Reverse-Tunnel по шагам (relay в РФ ↔ exit за рубежом)
 
 1. На exit-узле (за рубежом) — установка с `Prepare Reverse-Tunnel template = y` (или `az-guard-install.sh --reverse y`).
