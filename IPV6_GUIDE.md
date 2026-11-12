@@ -6,7 +6,7 @@
 |---|---|---|
 | `ENABLE_IPV6` | `y` / `n` | Если не задана: `y` при `IPV6_MODE` b/c, иначе `n` |
 | `IPV6_MODE` | `a` / `b` / `c` | a — только IPv4; b — Full-слои получают IPv6 (`::/0`), split без IPv6; c — b + Fake-IPv6 для заблокированных доменов в split |
-| `IPV6_EGRESS` | `native` / `proton` / `relay` | Выход IPv6 с узла. `proton` и `relay` требуют готового интерфейса (`IPV6_PROTON_INTERFACE`, по умолчанию `proton`; `IPV6_RELAY_INTERFACE`, по умолчанию `v6up`) |
+| `IPV6_EGRESS` | `native` / `proton` / `warp` / `relay` | Выход IPv6 с узла. `proton`, `warp` и `relay` требуют готового интерфейса (`IPV6_PROTON_INTERFACE`, по умолчанию `proton`; `IPV6_WARP_INTERFACE`, по умолчанию `warp-antizapret`, IPv6-адрес берётся из `/etc/wireguard/<iface>.conf`, если его нет на интерфейсе; `IPV6_RELAY_INTERFACE`, по умолчанию `v6up`) |
 | `IPV6_PROFILE_DEFAULT` | `dual` / `ipv4` | Профиль клиентов по умолчанию |
 
 Эффективный режим пишет `up.sh` в `/etc/knot-resolver/ipv6-mode`, состояние — в `/run/antizapret-ipv6.state`.

@@ -402,6 +402,7 @@ if [[ "$ENABLE_IPV6" != 'y' || "$IPV6_MODE" == 'a' ]]; then
 else
 	case "$IPV6_EGRESS" in
 		proton) IPV6_OUT_INTERFACE="${IPV6_PROTON_INTERFACE:-proton}" ;;
+		warp) IPV6_OUT_INTERFACE="${IPV6_WARP_INTERFACE:-warp-antizapret}" ;;
 		relay) IPV6_OUT_INTERFACE="${IPV6_RELAY_INTERFACE:-v6up}" ;;
 		*) IPV6_EGRESS=native; IPV6_OUT_INTERFACE="$DEFAULT_INTERFACE" ;;
 	esac
@@ -411,6 +412,12 @@ else
 		sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 "net.ipv6.conf.${IPV6_OUT_INTERFACE//./\/}.disable_ipv6=0" net.ipv6.conf.all.forwarding=1 2>/dev/null || true
 		if [[ "$IPV6_EGRESS" != 'native' ]]; then
 			# Клиентские ULA-подсети (fd28::/15) уходят в отдельную таблицу с маршрутом по умолчанию через туннель
+			# IPv6-адрес туннеля (WARP/Proton) берём из его wg-конфига, если на интерфейсе ещё нет
+			if ! ip -6 addr show dev "$IPV6_OUT_INTERFACE" scope global 2>/dev/null | grep -q inet6; then
+				for a in $(sed -n 's/^[Aa]ddress *= *//p' "/etc/wireguard/$IPV6_OUT_INTERFACE.conf" 2>/dev/null | tr ',' ' '); do
+					[[ "$a" == *:* ]] && ip -6 addr add "$a" dev "$IPV6_OUT_INTERFACE" 2>/dev/null || true
+				done
+			fi
 			ip -6 route replace default dev "$IPV6_OUT_INTERFACE" table $IPV6_ROUTE_TABLE
 			ip -6 rule add from fd28::/15 lookup $IPV6_ROUTE_TABLE priority 10006
 			ip -6 rule add oif "$IPV6_OUT_INTERFACE" lookup $IPV6_ROUTE_TABLE priority 10007
