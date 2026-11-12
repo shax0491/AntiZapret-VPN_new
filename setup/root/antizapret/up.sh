@@ -396,6 +396,9 @@ IPV6_REQUESTED_MODE="$IPV6_MODE"
 ipv6_egress_clean() {
 	while ip -6 rule del priority 10006 2>/dev/null; do :; done
 	while ip -6 rule del priority 10007 2>/dev/null; do :; done
+	while ip -6 rule del priority 10008 2>/dev/null; do :; done
+	while ip -6 rule del priority 10009 2>/dev/null; do :; done
+	ip -6 route flush table 13338 2>/dev/null || true
 	ip -6 route flush table $IPV6_ROUTE_TABLE 2>/dev/null || true
 }
 
@@ -403,53 +406,88 @@ ipv6_egress_ok() {
 	ping -6 -c 2 -W 3 -I "$1" 2606:4700:4700::1111 &>/dev/null || ping -6 -c 2 -W 3 -I "$1" 2001:4860:4860::8888 &>/dev/null
 }
 
+# Поднять IPv6-выход через wg-туннель: адрес, ::/0 в peer, маршрут в таблицу, правила, проверка ping6; при неудаче всё откатывается
+ipv6_tunnel_up() {
+	local ifc="$1" tbl="$2" net="$3" prio="$4" a p
+	ip link show "$ifc" &>/dev/null || return 1
+	sysctl -qw "net.ipv6.conf.${ifc//./\/}.disable_ipv6=0" 2>/dev/null || true
+	if ! ip -6 addr show dev "$ifc" scope global 2>/dev/null | grep -q inet6; then
+		for a in $(sed -n 's/^[Aa]ddress *= *//p' "/etc/wireguard/$ifc.conf" 2>/dev/null | tr ',' ' '); do
+			[[ "$a" == *:* ]] && ip -6 addr add "$a" dev "$ifc" 2>/dev/null || true
+		done
+		ip -6 addr show dev "$ifc" scope global 2>/dev/null | grep -q inet6 || ip -6 addr add "${IPV6_PROTON_ADDRESS:-2a07:b944::2:2/128}" dev "$ifc" 2>/dev/null || true
+	fi
+	for p in $(wg show "$ifc" peers 2>/dev/null); do
+		wg set "$ifc" peer "$p" allowed-ips 0.0.0.0/0,::/0 2>/dev/null || true
+	done
+	ip -6 route replace default dev "$ifc" table "$tbl"
+	ip -6 rule add from "$net" lookup "$tbl" priority "$prio"
+	ip -6 rule add oif "$ifc" lookup "$tbl" priority $((prio + 1))
+	ipv6_egress_ok "$ifc" && return 0
+	ip -6 rule del from "$net" lookup "$tbl" priority "$prio" 2>/dev/null
+	ip -6 rule del oif "$ifc" lookup "$tbl" priority $((prio + 1)) 2>/dev/null
+	ip -6 route flush table "$tbl" 2>/dev/null
+	return 1
+}
+
 ipv6_egress_clean
 if [[ "$ENABLE_IPV6" != 'y' || "$IPV6_MODE" == 'a' ]]; then
 	IPV6_MODE=a
 	[[ "$ENABLE_IPV6" == 'y' ]] || IPV6_REASON='ENABLE_IPV6=n'
 else
+	IPV6_OUT_INTERFACE_FULL=''
 	case "$IPV6_EGRESS" in
-		proton) IPV6_OUT_INTERFACE="${IPV6_PROTON_INTERFACE:-proton}" ;;
-		warp) IPV6_OUT_INTERFACE="${IPV6_WARP_INTERFACE:-warp-antizapret}" ;;
-		relay) IPV6_OUT_INTERFACE="${IPV6_RELAY_INTERFACE:-v6up}" ;;
-		*) IPV6_EGRESS=native; IPV6_OUT_INTERFACE="$DEFAULT_INTERFACE" ;;
-	esac
-	if ! ip link show "$IPV6_OUT_INTERFACE" &>/dev/null; then
-		IPV6_REASON="интерфейс $IPV6_OUT_INTERFACE отсутствует"
-	else
-		sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 "net.ipv6.conf.${IPV6_OUT_INTERFACE//./\/}.disable_ipv6=0" net.ipv6.conf.all.forwarding=1 2>/dev/null || true
-		if [[ "$IPV6_EGRESS" != 'native' ]]; then
-			# Клиентские ULA-подсети (fd28::/15) уходят в отдельную таблицу с маршрутом по умолчанию через туннель
-			# IPv6-адрес туннеля (WARP/Proton) берём из его wg-конфига, если на интерфейсе ещё нет
-			if ! ip -6 addr show dev "$IPV6_OUT_INTERFACE" scope global 2>/dev/null | grep -q inet6; then
-				for a in $(sed -n 's/^[Aa]ddress *= *//p' "/etc/wireguard/$IPV6_OUT_INTERFACE.conf" 2>/dev/null | tr ',' ' '); do
-					[[ "$a" == *:* ]] && ip -6 addr add "$a" dev "$IPV6_OUT_INTERFACE" 2>/dev/null || true
-				done
-				# в конфиге нет IPv6 (Proton выдаёт 2a07:b944::2:2/128 на любой ключ): берём его, иначе трафик не пойдёт
-				if [[ "$IPV6_EGRESS" == 'proton' ]] && ! ip -6 addr show dev "$IPV6_OUT_INTERFACE" scope global 2>/dev/null | grep -q inet6; then
-					ip -6 addr add "${IPV6_PROTON_ADDRESS:-2a07:b944::2:2/128}" dev "$IPV6_OUT_INTERFACE" 2>/dev/null || true
+		proton|warp)
+			# split-слои (fd29::/16) - через warp-antizapret, full-VPN (fd28::/16) - через warp-vpn; у каждого своя таблица
+			# (13337 / 13338) и свои ip -6 rule. Нет панельного туннеля или он не пропускает IPv6 - запасной интерфейс proton
+			# (только для egress=proton). Адрес Proton (2a07:b944::2:2/128) и ::/0 в peer добавляются при подъёме.
+			fallback_if=''
+			[[ "$IPV6_EGRESS" == 'proton' ]] && fallback_if="${IPV6_PROTON_INTERFACE:-proton}"
+			for c in warp-antizapret $fallback_if; do
+				ipv6_tunnel_up "$c" 13337 fd29::/16 10006 && { IPV6_OUT_INTERFACE="$c"; break; }
+			done
+			for c in warp-vpn $fallback_if; do
+				ipv6_tunnel_up "$c" 13338 fd28::/16 10008 && { IPV6_OUT_INTERFACE_FULL="$c"; break; }
+			done
+			if [[ -z "$IPV6_OUT_INTERFACE" || -z "$IPV6_OUT_INTERFACE_FULL" ]]; then
+				IPV6_REASON="выход IPv6 ($IPV6_EGRESS) не отвечает (split: ${IPV6_OUT_INTERFACE:-нет}, full: ${IPV6_OUT_INTERFACE_FULL:-нет})"
+				ipv6_egress_clean
+				IPV6_OUT_INTERFACE=''; IPV6_OUT_INTERFACE_FULL=''
+			else
+				sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 net.ipv6.conf.all.forwarding=1 2>/dev/null || true
+			fi
+			;;
+		*)
+			if [[ "$IPV6_EGRESS" == 'relay' ]]; then
+				IPV6_OUT_INTERFACE="${IPV6_RELAY_INTERFACE:-v6up}"
+			else
+				IPV6_EGRESS=native; IPV6_OUT_INTERFACE="$DEFAULT_INTERFACE"
+			fi
+			if ! ip link show "$IPV6_OUT_INTERFACE" &>/dev/null; then
+				IPV6_REASON="интерфейс $IPV6_OUT_INTERFACE отсутствует"
+			else
+				sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 "net.ipv6.conf.${IPV6_OUT_INTERFACE//./\/}.disable_ipv6=0" net.ipv6.conf.all.forwarding=1 2>/dev/null || true
+				if [[ "$IPV6_EGRESS" == 'relay' ]]; then
+					# relay: ULA-подсети клиентов (fd28::/15) уходят в отдельную таблицу через туннель
+					ip -6 route replace default dev "$IPV6_OUT_INTERFACE" table $IPV6_ROUTE_TABLE
+					ip -6 rule add from fd28::/15 lookup $IPV6_ROUTE_TABLE priority 10006
+					ip -6 rule add oif "$IPV6_OUT_INTERFACE" lookup $IPV6_ROUTE_TABLE priority 10007
+				fi
+				if ! ipv6_egress_ok "$IPV6_OUT_INTERFACE"; then
+					IPV6_REASON="выход IPv6 ($IPV6_EGRESS, $IPV6_OUT_INTERFACE) не отвечает"
+					ipv6_egress_clean
 				fi
 			fi
-			# wg-peer должен пропускать ::/0 (в конфиге может быть только 0.0.0.0/0)
-			for p in $(wg show "$IPV6_OUT_INTERFACE" peers 2>/dev/null); do
-				wg set "$IPV6_OUT_INTERFACE" peer "$p" allowed-ips 0.0.0.0/0,::/0 2>/dev/null || true
-			done
-			ip -6 route replace default dev "$IPV6_OUT_INTERFACE" table $IPV6_ROUTE_TABLE
-			ip -6 rule add from fd28::/15 lookup $IPV6_ROUTE_TABLE priority 10006
-			ip -6 rule add oif "$IPV6_OUT_INTERFACE" lookup $IPV6_ROUTE_TABLE priority 10007
-		fi
-		if ! ipv6_egress_ok "$IPV6_OUT_INTERFACE"; then
-			IPV6_REASON="выход IPv6 ($IPV6_EGRESS, $IPV6_OUT_INTERFACE) не отвечает"
-			ipv6_egress_clean
-		fi
-	fi
+			IPV6_OUT_INTERFACE_FULL="$IPV6_OUT_INTERFACE"
+			;;
+	esac
 	if [[ -n "$IPV6_REASON" ]]; then
 		echo "IPv6 off: $IPV6_REASON. AAAA отключены, клиентам только IPv4"
 		IPV6_MODE=a
 	fi
 fi
 printf '%s\n' "$IPV6_MODE" > /etc/knot-resolver/ipv6-mode
-printf 'requested=%s\neffective=%s\negress=%s\ninterface=%s\nreason=%s\nupdated=%s\n' "$IPV6_REQUESTED_MODE" "$IPV6_MODE" "$IPV6_EGRESS" "$IPV6_OUT_INTERFACE" "$IPV6_REASON" "$(date +%s)" > "$IPV6_STATE"
+printf 'requested=%s\neffective=%s\negress=%s\ninterface=%s\ninterface_full=%s\nreason=%s\nupdated=%s\n' "$IPV6_REQUESTED_MODE" "$IPV6_MODE" "$IPV6_EGRESS" "$IPV6_OUT_INTERFACE" "$IPV6_OUT_INTERFACE_FULL" "$IPV6_REASON" "$(date +%s)" > "$IPV6_STATE"
 
 for name in antizapret-udp antizapret-tcp vpn-udp vpn-tcp; do
 	conf="/etc/openvpn/server/$name.conf"
@@ -718,7 +756,12 @@ fi
 
 # IPv6: NAT66 клиентских ULA-подсетей, изоляция и ограничения по образцу IPv4 (fd28::/16 - Full-слои, fd29::/16 - split)
 if [[ "$IPV6_MODE" != 'a' ]]; then
-	ip6tables -w -t nat -A POSTROUTING -s fd28::/15 -o $IPV6_OUT_INTERFACE -j MASQUERADE
+	if [[ "$IPV6_OUT_INTERFACE_FULL" == "$IPV6_OUT_INTERFACE" ]]; then
+		ip6tables -w -t nat -A POSTROUTING -s fd28::/15 -o $IPV6_OUT_INTERFACE -j MASQUERADE
+	else
+		ip6tables -w -t nat -A POSTROUTING -s fd29::/16 -o $IPV6_OUT_INTERFACE -j MASQUERADE
+		ip6tables -w -t nat -A POSTROUTING -s fd28::/16 -o $IPV6_OUT_INTERFACE_FULL -j MASQUERADE
+	fi
 	# DNS split-клиентов - только IPv4-адрес сервера внутри туннеля; DNS/DoT по IPv6 мимо туннеля отклоняем,
 	# клиент мгновенно возвращается на IPv4-DNS
 	for dport in 53 853; do
