@@ -110,6 +110,9 @@ iptables -w -D FORWARD -s $IP.28.0.0/15 -m set --match-set antizapret-drop dst -
 iptables -w -D FORWARD -s $IP.28.0.0/15 -d $IP.28.0.0/15 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -p tcp ! --dport 53 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -p udp ! --dport 53 -j DROP
+# Killswitch VLESS-Proton
+while iptables -w -D OUTPUT -m mark --mark 0x51 ! -o proton -j DROP 2>/dev/null; do :; done
+while ip6tables -w -D OUTPUT -m mark --mark 0x51 ! -o proton -j DROP 2>/dev/null; do :; done
 # SSH protection
 iptables -w -D INPUT -p tcp --dport ssh -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 30/hour --hashlimit-burst 30 --hashlimit-mode srcip --hashlimit-srcmask 24 --hashlimit-name antizapret-ssh --hashlimit-htable-expire 60000 -j DROP
 ip6tables -w -D INPUT -p tcp --dport ssh -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 30/hour --hashlimit-burst 30 --hashlimit-mode srcip --hashlimit-srcmask 64 --hashlimit-name antizapret-ssh6 --hashlimit-htable-expire 60000 -j DROP

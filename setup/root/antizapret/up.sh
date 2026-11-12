@@ -579,6 +579,11 @@ if [[ "$CLIENT_ISOLATION" == 'y' ]]; then
 	iptables -w -I INPUT 2 -s $IP.28.0.0/15 -p tcp ! --dport 53 -j DROP
 	iptables -w -I INPUT 3 -s $IP.28.0.0/15 -p udp ! --dport 53 -j DROP
 fi
+# Killswitch VLESS-Proton (xray-az): сокеты с меткой 0x51 не выходят никуда, кроме интерфейса proton
+if [[ -d /opt/xray-az ]]; then
+	iptables -w -I OUTPUT 1 -m mark --mark 0x51 ! -o proton -j DROP
+	ip6tables -w -I OUTPUT 1 -m mark --mark 0x51 ! -o proton -j DROP
+fi
 if [[ "$SSH_PROTECTION" == 'y' ]]; then
 	iptables -w -I INPUT 2 -p tcp --dport ssh -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 30/hour --hashlimit-burst 30 --hashlimit-mode srcip --hashlimit-srcmask 24 --hashlimit-name antizapret-ssh --hashlimit-htable-expire 60000 -j DROP
 	ip6tables -w -I INPUT 2 -p tcp --dport ssh -m conntrack --ctstate NEW -m hashlimit --hashlimit-above 30/hour --hashlimit-burst 30 --hashlimit-mode srcip --hashlimit-srcmask 64 --hashlimit-name antizapret-ssh6 --hashlimit-htable-expire 60000 -j DROP
