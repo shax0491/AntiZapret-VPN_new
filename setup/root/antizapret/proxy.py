@@ -8,12 +8,15 @@ from dnslib.server import DNSServer,DNSHandler,BaseResolver,DNSLogger,TCPServer
 from proxy6 import Fake6
 
 class ProxyResolver(BaseResolver):
-    def __init__(self,dns,dns_port,dns_timeout,fake_cidr,dns_ttl,expire,fake6=None):
+    def __init__(self,dns,dns_port,dns_timeout,fake_cidr,dns_ttl,expire,fake6_cidr="fd00:30::/64",fake6_force=False):
         self._env=os.environ.copy()
-        # fake6: Fake6 (Fake-IPv6 для AAAA) или None - тогда AAAA отдаются как есть (поведение до IPv6)
-        self.fake6=fake6
-        if self.fake6:
-            self.fake6.load()
+        # Fake-IPv6 для AAAA включается, когда /etc/knot-resolver/ipv6-mode (его пишет up.sh) равен 'c'
+        # (или принудительно --ipv6); иначе AAAA отдаются как есть, как до IPv6
+        self.fake6_cidr=fake6_cidr
+        self.fake6_force=fake6_force
+        self.fake6_obj=None
+        self._fake6_on=fake6_force
+        self._fake6_ts=0
         self.ip_pool={str(x) for x in IPv4Network(fake_cidr).hosts()}
         self.ip_map={}
         # Loading existing fake IP mapping
@@ -46,6 +49,27 @@ class ProxyResolver(BaseResolver):
         self.lock=threading.Lock()
         # Start thread for expire fake IP mapping
         threading.Thread(target=self.expire_mapping_worker,daemon=True).start()
+
+    @property
+    def fake6(self):
+        now=time.time()
+        if not self.fake6_force and now-self._fake6_ts>5:
+            self._fake6_ts=now
+            try:
+                with open("/etc/knot-resolver/ipv6-mode",encoding="utf-8") as f:
+                    self._fake6_on=f.read().strip()=="c"
+            except OSError:
+                self._fake6_on=False
+        if self._fake6_on and self.fake6_obj is None:
+            obj=Fake6(self.fake6_cidr)
+            try:
+                obj.load()
+            except Exception as e:
+                print(f"Error: Fake-IPv6 disabled: {e}")
+                self._fake6_on=False
+                return None
+            self.fake6_obj=obj
+        return self.fake6_obj if self._fake6_on else None
 
     def get_fake_ip(self,real_ip,now,warp):
         with self.lock:
@@ -91,8 +115,8 @@ class ProxyResolver(BaseResolver):
             time.sleep(self.expire)
             try:
                 self.expire_mapping()
-                if self.fake6:
-                    n6=self.fake6.expire(time.time(),self.expire)
+                if self.fake6_obj:
+                    n6=self.fake6_obj.expire(time.time(),self.expire)
                     if n6:
                         print(f"Expired: {n6} fake IPv6")
             except Exception as e:
@@ -130,14 +154,18 @@ class ProxyResolver(BaseResolver):
 
     def resolve(self,request,handler):
         warp=handler.server.warp
+        fake6=self.fake6 if request.q.qtype==QTYPE.AAAA else None
+        if fake6 and warp:
+            # v6 через WARP не поддерживается: пустой ответ, клиент остаётся на IPv4
+            return request.reply()
         try:
             if handler.protocol=="udp":
                 data=request.send(self.dns,self.dns_port,timeout=self.dns_timeout)
             else:
                 data=request.send(self.dns,self.dns_port,tcp=True,timeout=self.dns_timeout)
             reply=DNSRecord.parse(data)
-            if request.q.qtype==QTYPE.AAAA and self.fake6:
-                if not self.fake6.rewrite_aaaa(reply,time.time(),self.dns_ttl):
+            if fake6:
+                if not fake6.rewrite_aaaa(reply,time.time(),self.dns_ttl):
                     reply=request.reply()
                     reply.header.rcode=RCODE.SERVFAIL
                     return reply
@@ -169,7 +197,7 @@ if __name__=="__main__":
     p.add_argument("--expire",type=int,default=3600,help="Seconds of inactivity before fake IP is removed (default: 3600)")
     p.add_argument("--proxy",default="127.4.4.4:53",help="Local Fake IP proxy listen address:port (default: 127.4.4.4:53)")
     p.add_argument("--warp",default="127.5.5.5:53",help="Local WARP proxy listen address:port (default: 127.5.5.5:53)")
-    p.add_argument("--ipv6",action="store_true",default=os.environ.get("AZ_FAKE6")=="1",help="Fake-IPv6 for AAAA (default: off, env AZ_FAKE6=1)")
+    p.add_argument("--ipv6",action="store_true",default=False,help="Force Fake-IPv6 for AAAA (default: only when /etc/knot-resolver/ipv6-mode is 'c')")
     p.add_argument("--fake6-cidr",default="fd00:30::/64",help="Fake IPv6 CIDR (default: fd00:30::/64)")
     p.add_argument("--log",default="truncated,error",help="Log hooks to enable (default: +truncated,+error,-request,-reply,-recv,-send,-data)")
     p.add_argument("--log-prefix",action="store_true",default=False,help="Log prefix (timestamp/handler/resolver) (default: False)")
@@ -182,7 +210,7 @@ if __name__=="__main__":
     args.warp_port=int(args.warp_port or 53)
     TCPServer.request_queue_size=128
     print("Starting...")
-    resolver=ProxyResolver(args.dns,args.dns_port,args.dns_timeout,args.fake_cidr,args.dns_ttl,args.expire,Fake6(args.fake6_cidr) if args.ipv6 else None)
+    resolver=ProxyResolver(args.dns,args.dns_port,args.dns_timeout,args.fake_cidr,args.dns_ttl,args.expire,args.fake6_cidr,args.ipv6)
     logger=DNSLogger(args.log,prefix=args.log_prefix)
     def start_server(address,port,tcp=False):
         server=DNSServer(resolver,port=port,address=address,tcp=tcp,logger=logger,handler=DNSHandler)

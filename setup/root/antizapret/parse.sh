@@ -26,6 +26,7 @@ cd /root/antizapret
 rm -rf temp result
 mkdir -p temp result
 source setup
+[[ -r /etc/knot-resolver/ipv6-mode ]] && IPV6_MODE="$(cat /etc/knot-resolver/ipv6-mode)" # эффективный режим (при сбое выхода up.sh ставит a)
 
 # --- Точечная очистка кэша по изменившимся доменам ---
 # Работает ВСЕГДА, включая noclear/noclean (ночной автозапуск), в отличие
@@ -127,6 +128,10 @@ if [[ -z "$1" || "$1" == 'ip' || "$1" == 'ips' || "$1" == 'noclear' || "$1" == '
 
 	echo "$(wc -l < result/route-ips.txt) - route-ips.txt"
 
+	# IPv6: include-ips6 минус exclude-ips6 (агрегация, проверка формата); в маршруты и AllowedIPs
+	# попадает только при ENABLE_IPV6=y и IPV6_MODE=c
+	python3 ip6list.py result/route-ips6.txt --include download/*ips6.txt config/*include-ips6.txt --exclude config/*exclude-ips6.txt
+
 	sed -E 's/[\r[:space:]]+//g; /^[[:punct:]]/d; /^$/d' config/*drop-ips.txt | sort -u \
 	| awk -F'[/.]' 'NF==5 && $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255 && $5>=1 && $5<=32 {print}' > result/drop-ips.txt
 
@@ -183,6 +188,19 @@ route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-r
 		echo "/ip route add dst-address=$cidr gateway=10.9.0.1 distance=1 comment=\"antizapret-amneziawg3\"" >> result/mikrotik-amneziawg3-routes.txt
 	done < result/route-ips.txt
 
+	# Split-слои в режиме c: маршрут на Fake-IPv6 (fd00:30::/64) и IPv6-подсети из списков.
+	# Клиентам без IPv6 в профиле (ipv4) эти маршруты не выдаются: client.sh подставляет их только в dual-профили
+	IPS6=''
+	if [[ "$ENABLE_IPV6" == 'y' && "$IPV6_MODE" == 'c' ]]; then
+		echo 'push "route-ipv6 fd00:30::/64"' >> result/DEFAULT
+		IPS6=', fd00:30::/64'
+		while read -r cidr6; do
+			echo "push \"route-ipv6 $cidr6\"" >> result/DEFAULT
+			IPS6+=", $cidr6"
+		done < result/route-ips6.txt
+	fi
+	echo -n "$IPS6" > result/ips6
+
 	mkdir -p /etc/openvpn/server/ccd
 	if [[ -f result/DEFAULT ]] && ! diff -q result/DEFAULT /etc/openvpn/server/ccd/DEFAULT; then
 		cp -f result/DEFAULT /etc/openvpn/server/ccd/DEFAULT
@@ -195,6 +213,10 @@ route ADD $FAKE_IP.0.0 MASK 255.254.0.0 10.9.0.1" > result/keenetic-amneziawg3-r
 
 	if [[ -f result/ips ]] && ! diff -q result/ips /etc/wireguard/ips; then
 		cp -f result/ips /etc/wireguard/ips
+	fi
+
+	if [[ -f result/ips6 ]] && ! diff -q result/ips6 /etc/wireguard/ips6 2>/dev/null; then
+		cp -f result/ips6 /etc/wireguard/ips6
 	fi
 
 	# Обрабатываем конфигурационные файлы

@@ -211,6 +211,25 @@ nft delete chain ip antizapret warp_hook 2>/dev/null
 # карта mapping6 переживает перезапуск, удаляется только хук (как у IPv4)
 nft flush chain ip6 antizapret mapping_hook 2>/dev/null
 nft delete chain ip6 antizapret mapping_hook 2>/dev/null
+# IPv6: правила из up.sh (режимы b/c) и маршрутизация выхода
+if [[ -f /run/antizapret-ipv6.state ]]; then
+	IPV6_OUT_INTERFACE="$(sed -n 's/^interface=//p' /run/antizapret-ipv6.state)"
+	if [[ -n "$IPV6_OUT_INTERFACE" ]]; then
+		ip6tables -w -t nat -D POSTROUTING -s fd28::/15 -o $IPV6_OUT_INTERFACE -j MASQUERADE 2>/dev/null
+	fi
+fi
+for dport in 53 853; do
+	ip6tables -w -D FORWARD -s fd29::/16 -p udp --dport $dport -j REJECT --reject-with icmp6-port-unreachable 2>/dev/null
+	ip6tables -w -D FORWARD -s fd29::/16 -p tcp --dport $dport -j REJECT --reject-with tcp-reset 2>/dev/null
+done
+ip6tables -w -t mangle -D PREROUTING -s fd29::/16 ! -d fd00:30::/64 -j CONNMARK --set-mark 0x1 2>/dev/null
+ip6tables -w -D FORWARD -s fd29::/16 -m connmark --mark 0x1 -m set ! --match-set antizapret-forward6 dst -j DROP 2>/dev/null
+ip6tables -w -D FORWARD -s fd28::/15 -d fd28::/15 -j DROP 2>/dev/null
+ip6tables -w -D INPUT -s fd28::/15 -p tcp ! --dport 53 -j DROP 2>/dev/null
+ip6tables -w -D INPUT -s fd28::/15 -p udp ! --dport 53 -j DROP 2>/dev/null
+while ip -6 rule del priority 10006 2>/dev/null; do :; done
+while ip -6 rule del priority 10007 2>/dev/null; do :; done
+ip -6 route flush table 13337 2>/dev/null
 # WARP
 iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j MASQUERADE
 iptables -w -t nat -D POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j SNAT --to-source $ANTIZAPRET_WARP_IP

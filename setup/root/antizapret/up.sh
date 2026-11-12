@@ -371,23 +371,81 @@ else
 	rm -f $DNS_WARP_PATH
 fi
 
-if [[ "$IPV6_MODE" == 'b' ]]; then
-	for name in antizapret-udp antizapret-tcp vpn-udp vpn-tcp; do
-		conf="/etc/openvpn/server/$name.conf"
-		[[ -f "$conf" ]] || continue
-		sed -i '/^block-ipv6$/d; /^server-ipv6 /d; /^push "route-ipv6 /d' "$conf"
+# IPv6 (ENABLE_IPV6=y). Режимы IPV6_MODE: a - клиентам только IPv4 (AAAA пустой);
+# b - Full-VPN слои (vpn*, awg1-full) получают IPv6 и ::/0, split-слои без IPv6;
+# c - как b, плюс split-слои получают Fake-IPv6 (fd00:30::/64) для заблокированных доменов и IPv6-маршруты из списков.
+# Выход IPv6 - IPV6_EGRESS: native (интерфейс сервера), proton (wg-интерфейс IPV6_PROTON_INTERFACE, по умолчанию proton),
+# relay (wg-туннель IPV6_RELAY_INTERFACE, по умолчанию v6up, IPv6 через другой узел). Если выход IPv6 не отвечает,
+# режим принудительно становится a: иначе клиенты зависали бы на недоступном IPv6. Состояние - /run/antizapret-ipv6.state
+ENABLE_IPV6="${ENABLE_IPV6:-$([[ "$IPV6_MODE" == 'a' ]] && echo n || echo y)}"
+IPV6_EGRESS="${IPV6_EGRESS:-native}"
+IPV6_STATE=/run/antizapret-ipv6.state
+IPV6_ROUTE_TABLE=13337
+IPV6_OUT_INTERFACE=''
+IPV6_REASON=''
+IPV6_REQUESTED_MODE="$IPV6_MODE"
+
+ipv6_egress_clean() {
+	while ip -6 rule del priority 10006 2>/dev/null; do :; done
+	while ip -6 rule del priority 10007 2>/dev/null; do :; done
+	ip -6 route flush table $IPV6_ROUTE_TABLE 2>/dev/null || true
+}
+
+ipv6_egress_ok() {
+	ping -6 -c 2 -W 3 -I "$1" 2606:4700:4700::1111 &>/dev/null || ping -6 -c 2 -W 3 -I "$1" 2001:4860:4860::8888 &>/dev/null
+}
+
+ipv6_egress_clean
+if [[ "$ENABLE_IPV6" != 'y' || "$IPV6_MODE" == 'a' ]]; then
+	IPV6_MODE=a
+	[[ "$ENABLE_IPV6" == 'y' ]] || IPV6_REASON='ENABLE_IPV6=n'
+else
+	case "$IPV6_EGRESS" in
+		proton) IPV6_OUT_INTERFACE="${IPV6_PROTON_INTERFACE:-proton}" ;;
+		relay) IPV6_OUT_INTERFACE="${IPV6_RELAY_INTERFACE:-v6up}" ;;
+		*) IPV6_EGRESS=native; IPV6_OUT_INTERFACE="$DEFAULT_INTERFACE" ;;
+	esac
+	if ! ip link show "$IPV6_OUT_INTERFACE" &>/dev/null; then
+		IPV6_REASON="интерфейс $IPV6_OUT_INTERFACE отсутствует"
+	else
+		sysctl -qw net.ipv6.conf.all.disable_ipv6=0 net.ipv6.conf.default.disable_ipv6=0 "net.ipv6.conf.${IPV6_OUT_INTERFACE//./\/}.disable_ipv6=0" net.ipv6.conf.all.forwarding=1 2>/dev/null || true
+		if [[ "$IPV6_EGRESS" != 'native' ]]; then
+			# Клиентские ULA-подсети (fd28::/15) уходят в отдельную таблицу с маршрутом по умолчанию через туннель
+			ip -6 route replace default dev "$IPV6_OUT_INTERFACE" table $IPV6_ROUTE_TABLE
+			ip -6 rule add from fd28::/15 lookup $IPV6_ROUTE_TABLE priority 10006
+			ip -6 rule add oif "$IPV6_OUT_INTERFACE" lookup $IPV6_ROUTE_TABLE priority 10007
+		fi
+		if ! ipv6_egress_ok "$IPV6_OUT_INTERFACE"; then
+			IPV6_REASON="выход IPv6 ($IPV6_EGRESS, $IPV6_OUT_INTERFACE) не отвечает"
+			ipv6_egress_clean
+		fi
+	fi
+	if [[ -n "$IPV6_REASON" ]]; then
+		echo "IPv6 off: $IPV6_REASON. AAAA отключены, клиентам только IPv4"
+		IPV6_MODE=a
+	fi
+fi
+printf '%s\n' "$IPV6_MODE" > /etc/knot-resolver/ipv6-mode
+printf 'requested=%s\neffective=%s\negress=%s\ninterface=%s\nreason=%s\nupdated=%s\n' "$IPV6_REQUESTED_MODE" "$IPV6_MODE" "$IPV6_EGRESS" "$IPV6_OUT_INTERFACE" "$IPV6_REASON" "$(date +%s)" > "$IPV6_STATE"
+
+for name in antizapret-udp antizapret-tcp vpn-udp vpn-tcp; do
+	conf="/etc/openvpn/server/$name.conf"
+	[[ -f "$conf" ]] || continue
+	before="$(cksum < "$conf")"
+	sed -i '/^block-ipv6$/d; /^server-ipv6 /d; /^push "route-ipv6 /d' "$conf"
+	if [[ "$IPV6_MODE" != 'a' ]]; then
 		case "$name" in
 			antizapret-udp) subnet='fd29:10::/64' ;;
 			antizapret-tcp) subnet='fd29:11::/64' ;;
 			vpn-udp) subnet='fd28:10::/64' ;;
 			vpn-tcp) subnet='fd28:11::/64' ;;
 		esac
-		printf 'server-ipv6 %s\npush "route-ipv6 ::/0"\n' "$subnet" >> "$conf"
-		systemctl restart "openvpn-server@$name"
-	done
-else
-	sed -i '/^server-ipv6 /d; /^push "route-ipv6 /d' /etc/openvpn/server/*.conf
-fi
+		printf 'server-ipv6 %s\n' "$subnet" >> "$conf"
+		# split-слои получают IPv6-маршруты из ccd/DEFAULT (parse.sh, режим c), Full-слои - весь IPv6
+		[[ "$name" == vpn-* ]] && printf 'push "route-ipv6 ::/0"\n' >> "$conf"
+	fi
+	[[ "$before" == "$(cksum < "$conf")" ]] || systemctl restart "openvpn-server@$name"
+done
 systemctl restart kresd@1 kresd@2 kresd@3
 
 # filter
@@ -634,6 +692,35 @@ if [[ "$ENABLE_IPV6" == 'y' && "$IPV6_MODE" == 'c' ]]; then
 	nft add chain ip6 antizapret mapping_hook '{ type nat hook prerouting priority -50 ; policy accept ; }'
 	nft add rule ip6 antizapret mapping_hook ip6 saddr { fd29:7::/64, fd29:8::/64, fd29:9::/64, fd29:10::/64, fd29:11::/64 } ip6 daddr fd00:30::/64 dnat to ip6 daddr map @mapping6
 fi
+
+# IPv6: NAT66 клиентских ULA-подсетей, изоляция и ограничения по образцу IPv4 (fd28::/16 - Full-слои, fd29::/16 - split)
+if [[ "$IPV6_MODE" != 'a' ]]; then
+	ip6tables -w -t nat -A POSTROUTING -s fd28::/15 -o $IPV6_OUT_INTERFACE -j MASQUERADE
+	# DNS split-клиентов - только IPv4-адрес сервера внутри туннеля; DNS/DoT по IPv6 мимо туннеля отклоняем,
+	# клиент мгновенно возвращается на IPv4-DNS
+	for dport in 53 853; do
+		ip6tables -w -I FORWARD 2 -s fd29::/16 -p udp --dport $dport -j REJECT --reject-with icmp6-port-unreachable
+		ip6tables -w -I FORWARD 2 -s fd29::/16 -p tcp --dport $dport -j REJECT --reject-with tcp-reset
+	done
+	{
+		echo 'create antizapret-forward6 hash:net family inet6 -exist'
+		echo 'flush antizapret-forward6'
+		if [[ -f result/route-ips6.txt ]]; then
+			while read -r cidr6; do
+				echo "add antizapret-forward6 $cidr6 -exist"
+			done < result/route-ips6.txt
+		fi
+	} | ipset restore
+	if [[ "$RESTRICT_FORWARD" == 'y' ]]; then
+		ip6tables -w -t mangle -A PREROUTING -s fd29::/16 ! -d fd00:30::/64 -j CONNMARK --set-mark 0x1
+		ip6tables -w -I FORWARD 2 -s fd29::/16 -m connmark --mark 0x1 -m set ! --match-set antizapret-forward6 dst -j DROP
+	fi
+	if [[ "$CLIENT_ISOLATION" == 'y' ]]; then
+		ip6tables -w -I FORWARD 2 -s fd28::/15 -d fd28::/15 -j DROP
+		ip6tables -w -I INPUT 2 -s fd28::/15 -p tcp ! --dport 53 -j DROP
+		ip6tables -w -I INPUT 3 -s fd28::/15 -p udp ! --dport 53 -j DROP
+	fi
+fi
 if [[ "$ANTIZAPRET_WARP" == '3' || "$ANTIZAPRET_WARP" == '4' ]]; then
 	if [[ -z "$ANTIZAPRET_WARP_IP" ]]; then
 		iptables -w -t nat -A POSTROUTING -s $IP.29.0.0/16 -m mark --mark 0x2 -o $ANTIZAPRET_WARP_INTERFACE -j MASQUERADE
@@ -676,12 +763,6 @@ else
 	else
 		iptables -w -t nat -A POSTROUTING -s $IP.28.0.0/16 -o $VPN_OUT_INTERFACE -j SNAT --to-source $VPN_OUT_IP
 	fi
-fi
-
-if [[ "$IPV6_MODE" == 'b' ]]; then
-	for out_interface in $(printf '%s\n' "$ANTIZAPRET_OUT_INTERFACE" "$VPN_OUT_INTERFACE" | sort -u); do
-		[[ -n "$out_interface" ]] && ip6tables -w -t nat -A POSTROUTING -s fd28::/15 -o "$out_interface" -j MASQUERADE
-	done
 fi
 
 # Network tuning
