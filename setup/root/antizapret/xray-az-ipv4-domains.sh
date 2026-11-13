@@ -1,28 +1,42 @@
 #!/bin/bash
-# xray-az: прямой выход только IPv4; Meta/Instagram и Anthropic/Claude всегда по IPv4 (и напрямую, и через Proton)
+# xray-az: direct и proton при рабочем IPv6 предпочитают IPv6 (UseIPv6v4); Meta/Instagram и Anthropic/Claude всегда по IPv4
+# (и напрямую, и через Proton). Если нативный IPv6 узла получает 403 от Gemini - эти домены в direct тоже идут по IPv4.
 set -u
 CFG=/opt/xray-az/config.json
 cp -a "$CFG" "$CFG.bak-fix2-$(date +%s)"
 python3 - "$CFG" <<'PY'
-import json, sys
+import copy, json, subprocess, sys
 p = sys.argv[1]
 c = json.load(open(p))
 DOM = ["domain:instagram.com", "domain:cdninstagram.com", "domain:fbcdn.net", "domain:facebook.com",
        "domain:anthropic.com", "domain:claude.ai", "domain:claude.com"]
+GEMINI = ["domain:gemini.google.com", "domain:aistudio.google.com", "domain:generativelanguage.googleapis.com",
+          "domain:alkalimakersuite-pa.clients6.google.com", "domain:makersuite.google.com"]
+
+def curl_code(url, fam):
+    r = subprocess.run(["curl", "-" + fam, "-s", "-o", "/dev/null", "-w", "%{http_code}", "-m", "10", url], capture_output=True, text=True)
+    return r.stdout.strip() or "000"
+
+native6 = curl_code("https://www.google.com/", "6") == "200"
+gemini_v6_blocked = native6 and curl_code("https://gemini.google.com/app", "6") == "403"
 outs = c["outbounds"]
-for o in outs:
-    if o.get("tag") == "direct":
-        o.setdefault("settings", {})["domainStrategy"] = "UseIPv4"
+direct = next(o for o in outs if o.get("tag") == "direct")
+direct.setdefault("settings", {})["domainStrategy"] = "UseIPv6v4" if native6 else "UseIPv4"
+outs[:] = [o for o in outs if o.get("tag") not in ("direct-v4", "proton-v4")]
+d4 = copy.deepcopy(direct)
+d4["tag"] = "direct-v4"
+d4["settings"]["domainStrategy"] = "UseIPv4"
+outs.append(d4)
 prot = next(o for o in outs if o.get("tag") == "proton")
-if not any(o.get("tag") == "proton-v4" for o in outs):
-    v4 = json.loads(json.dumps(prot))
-    v4["tag"] = "proton-v4"
-    v4.setdefault("settings", {})["domainStrategy"] = "UseIPv4"
-    outs.append(v4)
+v4 = copy.deepcopy(prot)
+v4["tag"] = "proton-v4"
+v4.setdefault("settings", {})["domainStrategy"] = "UseIPv4"
+outs.append(v4)
 rules = c["routing"]["rules"]
 rules[:] = [r for r in rules if r.get("outboundTag") not in ("proton-v4", "direct-v4") or "domain" not in r]
 rules.insert(0, {"type": "field", "inboundTag": ["in-proton"], "domain": DOM, "outboundTag": "proton-v4"})
-rules.insert(1, {"type": "field", "inboundTag": ["in-direct"], "domain": DOM, "outboundTag": "direct"})
+rules.insert(1, {"type": "field", "inboundTag": ["in-direct"], "domain": DOM + (GEMINI if gemini_v6_blocked else []), "outboundTag": "direct-v4"})
 json.dump(c, open(p, "w"), indent=2, ensure_ascii=False)
+print("native6=%s gemini_v6_blocked=%s" % (native6, gemini_v6_blocked))
 PY
 /opt/xray-az/xray run -test -config "$CFG" >/dev/null 2>&1 && echo FIX2_OK || { echo XRAY_TEST_FAIL; cp -a "$(ls -t $CFG.bak-fix2-* | head -1)" "$CFG"; exit 1; }
