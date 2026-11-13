@@ -10,15 +10,19 @@ cp -a "$CFG" "$CFG.bak-v6dual-$TS"
 cp -a "$PC" "$PC.bak-v6dual-$TS"
 
 python3 - "$CFG" "$V6OK" <<'PY'
-import json, sys
+import json, subprocess, sys
 p, ok = sys.argv[1], sys.argv[2] == "1"
+native6 = subprocess.run(["curl", "-6", "-s", "-m", "8", "-o", "/dev/null", "https://ipv6.icanhazip.com"]).returncode == 0
 c = json.load(open(p))
 for o in c["outbounds"]:
     if o.get("tag") == "proton":
-        o.setdefault("settings", {})["domainStrategy"] = "UseIPv4v6" if ok else "UseIPv4"
+        o.setdefault("settings", {})["domainStrategy"] = "UseIPv6v4" if ok else "UseIPv4"
         so = o.setdefault("streamSettings", {}).setdefault("sockopt", {})
         so["interface"] = "proton"
         so["mark"] = 81
+    # карточка «Прямой»: при рабочем нативном IPv6 узла IPv6 тоже в приоритете, как у proton
+    if o.get("tag") == "direct" and native6:
+        o.setdefault("settings", {})["domainStrategy"] = "UseIPv6v4"
 json.dump(c, open(p, "w"), indent=2, ensure_ascii=False)
 PY
 
