@@ -39,8 +39,13 @@ for i in c["inbounds"]:
         i["sniffing"] = {"enabled": True, "destOverride": ["http", "tls"], "routeOnly": True}
 rules = c["routing"]["rules"]
 rules[:] = [r for r in rules if r.get("outboundTag") not in ("proton-v4", "direct-v4") or "domain" not in r]
+# Meta/Anthropic по IPv6-адресу (mihomo отдаёт чистый IP): сбрасываем, клиент сразу переходит на IPv4
+if not any(o.get("tag") == "block" for o in outs):
+    outs.append({"tag": "block", "protocol": "blackhole"})
+rules[:] = [r for r in rules if not (r.get("outboundTag") == "block" and r.get("ip") == ["::/0"])]
 rules.insert(0, {"type": "field", "inboundTag": ["in-proton"], "domain": DOM, "outboundTag": "proton-v4"})
 rules.insert(1, {"type": "field", "inboundTag": ["in-direct"], "domain": DOM + (GEMINI if gemini_v6_blocked else []), "outboundTag": "direct-v4"})
+rules.insert(0, {"type": "field", "inboundTag": ["in-direct", "in-proton"], "domain": DOM, "ip": ["::/0"], "outboundTag": "block"})
 json.dump(c, open(p, "w"), indent=2, ensure_ascii=False)
 print("native6=%s gemini_v6_blocked=%s" % (native6, gemini_v6_blocked))
 PY
