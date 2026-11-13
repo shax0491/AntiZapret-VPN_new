@@ -32,6 +32,11 @@ v4 = copy.deepcopy(prot)
 v4["tag"] = "proton-v4"
 v4.setdefault("settings", {})["domainStrategy"] = "UseIPv4"
 outs.append(v4)
+# mihomo (sniffer без override-destination, dns normal) отдаёт на узел чистый IP: домен видим только для роутинга (routeOnly),
+# стек пакета (IPv4/IPv6) сохраняется
+for i in c["inbounds"]:
+    if i.get("tag") in ("in-direct", "in-proton"):
+        i["sniffing"] = {"enabled": True, "destOverride": ["http", "tls"], "routeOnly": True}
 rules = c["routing"]["rules"]
 rules[:] = [r for r in rules if r.get("outboundTag") not in ("proton-v4", "direct-v4") or "domain" not in r]
 rules.insert(0, {"type": "field", "inboundTag": ["in-proton"], "domain": DOM, "outboundTag": "proton-v4"})
