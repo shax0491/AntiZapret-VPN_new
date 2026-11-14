@@ -48,6 +48,21 @@ rules[:] = [r for r in rules if not (r.get("outboundTag") == "block" and r.get("
 rules.insert(0, {"type": "field", "inboundTag": ["in-proton"], "domain": DOM, "outboundTag": "proton-v4"})
 rules.insert(1, {"type": "field", "inboundTag": ["in-direct"], "domain": DOM + (GEMINI if gemini_v6_blocked else []), "outboundTag": "direct-v4"})
 rules.insert(0, {"type": "field", "inboundTag": ["in-direct", "in-proton"], "domain": DOM, "ip": ["::/0"], "outboundTag": "block"})
+# режим «Приоритет IPv6» (mihomo): дополнительные входы с routeOnly=false - xray по sniffнутому SNI сам резолвит домен (UseIPv6v4),
+# поэтому IPv4-запрос Dual-Stack сайта уходит по IPv6, а сайты без AAAA (github) остаются на IPv4
+for src_tags, new_tag, port in ((("in-direct2", "in-direct"), "in-direct-v6", 8449), (("in-proton",), "in-proton-v6", 8450)):
+    src = next((i for t in src_tags for i in c["inbounds"] if i.get("tag") == t), None)
+    if not src or any(i.get("tag") == new_tag for i in c["inbounds"]) or any(i.get("port") == port for i in c["inbounds"]):
+        continue
+    n = copy.deepcopy(src)
+    n["tag"], n["port"] = new_tag, port
+    n["sniffing"] = {"enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": False}
+    c["inbounds"].append(n)
+for r in rules:
+    tg = r.get("inboundTag", [])
+    for old, new in (("in-direct", "in-direct-v6"), ("in-direct2", "in-direct-v6"), ("in-proton", "in-proton-v6")):
+        if old in tg and new not in tg and any(i.get("tag") == new for i in c["inbounds"]):
+            tg.append(new)
 json.dump(c, open(p, "w"), indent=2, ensure_ascii=False)
 print("native6=%s gemini_v6_blocked=%s" % (native6, gemini_v6_blocked))
 PY
