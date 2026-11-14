@@ -94,6 +94,15 @@ iptables -w -D FORWARD -s $IP.29.0.0/16 -j DROP
 iptables -w -D FORWARD -s $IP.28.0.0/16 -j DROP
 iptables -w -t raw -D PREROUTING -s $IP.29.0.0/16 -j DROP
 iptables -w -t raw -D PREROUTING -s $IP.28.0.0/16 -j DROP
+# QUIC_REJECT_14_11
+for src in 10.9.0.0/24 $IP.29.0.0/16; do
+	while iptables -w -D FORWARD -s $src -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null; do :; done
+done
+for net in 10.9.0.0/16 $IP.28.0.0/15 $IP.29.0.0/16; do
+	while iptables -w -t mangle -D FORWARD -s $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null; do :; done
+	while iptables -w -t mangle -D FORWARD -d $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null; do :; done
+	while iptables -w -t mangle -D OUTPUT -d $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null; do :; done
+done
 # Telegram dead subnet workaround
 iptables -w -D FORWARD -d 91.105.192.0/23 -j REJECT --reject-with icmp-port-unreachable
 iptables -w -D FORWARD -d 91.105.192.0/23 -p tcp -j REJECT --reject-with tcp-reset

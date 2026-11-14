@@ -23,3 +23,8 @@
 
 
 
+# Polaris IQ Home (умный дом): облако polaris-iot.com (AWS) через Fake-IP/Proton не отвечает - напрямую
+polaris-iot.com
+polar.ru
+polarisgroup.ru
+rusklimat.ru

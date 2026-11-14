@@ -667,6 +667,28 @@ iptables -w -t mangle -C OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS
 WARP_MSS=$(( ${WARP_MTU:-1280} - 40 ))
 iptables -w -t mangle -C FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$WARP_MSS" 2>/dev/null || iptables -w -t mangle -A FORWARD -i warp+ -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "$WARP_MSS"
 
+# Ротация apt/unattended-upgrade перезапускает systemd-networkd, он стирает «чужие» ip rule (oif proton lookup 51820 из PostUp wg-quick и др.) -
+# выход через Proton по IPv6 пропадает до перезапуска туннеля (14.11 на DE2/DE4). Не даём networkd трогать чужие правила и маршруты.
+if [[ ! -f /etc/systemd/networkd.conf.d/10-foreign-rules.conf ]]; then
+	mkdir -p /etc/systemd/networkd.conf.d
+	printf '[Network]
+ManageForeignRoutingPolicyRules=no
+ManageForeignRoutes=no
+' > /etc/systemd/networkd.conf.d/10-foreign-rules.conf
+fi
+# QUIC_REJECT_14_11: IPv4-клиенты туннелей (AWG 3.0 10.9.0.0/24, split 10.29.0.0/16): UDP 443 (QUIC) проксировать нечем, а тихий DROP
+# заставляет браузер и Gemini ждать тайм-аут QUIC. REJECT icmp-port-unreachable - мгновенный возврат на TCP.
+for src in 10.9.0.0/24 $IP.29.0.0/16; do
+	iptables -w -C FORWARD -s $src -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -w -I FORWARD 2 -s $src -p udp --dport 443 -j REJECT --reject-with icmp-port-unreachable
+done
+# MSS 1240 для IPv4-клиентов туннелей (AWG с MTU 1280, Proton/WARP 1280): SYN клиента (-s) и SYN-ACK к клиенту (-d), в том числе
+# для TCP, терминируемого локально (xray-az: OUTPUT), который в FORWARD не попадает
+for net in 10.9.0.0/16 $IP.28.0.0/15 $IP.29.0.0/16; do
+	iptables -w -t mangle -C FORWARD -s $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null || iptables -w -t mangle -A FORWARD -s $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+	iptables -w -t mangle -C FORWARD -d $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null || iptables -w -t mangle -A FORWARD -d $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+	iptables -w -t mangle -C OUTPUT -d $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240 2>/dev/null || iptables -w -t mangle -A OUTPUT -d $net -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+done
+
 # Очередь fq (net.core.default_qdisc=fq) пропускает не больше flow_limit=100 пакетов на поток.
 # Туннель WireGuard/AmneziaWG на модуле ядра - один поток UDP на клиента без притормаживания
 # сокетом, как у amneziawg-go: пачка больше 100 пакетов обрезается (FQ_FLOW_LIMIT), скорость
