@@ -37,6 +37,8 @@ outs.append(v4)
 for i in c["inbounds"]:
     if i.get("tag") in ("in-direct", "in-proton"):
         i["sniffing"] = {"enabled": True, "destOverride": ["http", "tls"], "routeOnly": True}
+    elif i.get("tag") == "in-direct2":   # дополнительный вход (QUIC): без routeOnly xray сам резолвит домен и IPv4-запрос уходит по IPv6 (FR1, 14.11)
+        i.setdefault("sniffing", {"enabled": True, "destOverride": ["http", "tls", "quic"]})["routeOnly"] = True
 rules = c["routing"]["rules"]
 rules[:] = [r for r in rules if r.get("outboundTag") not in ("proton-v4", "direct-v4") or "domain" not in r]
 # Meta/Anthropic по IPv6-адресу (mihomo отдаёт чистый IP): сбрасываем, клиент сразу переходит на IPv4

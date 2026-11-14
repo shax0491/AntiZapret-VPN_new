@@ -298,6 +298,8 @@ if [[ -z "$1" || "$1" == 'host' || "$1" == 'hosts' || "$1" == 'noclear' || "$1" 
 		sed 's/$/ CNAME rpz-passthru./; p; s/^/*./' result/exclude-adblock-hosts.txt >> temp/deny.rpz
 	fi
 	sed 's/\r//g; /^;/d; /^$/d' download/*deny-rpz.txt config/*deny-rpz.txt >> temp/deny.rpz
+	# upstream deny-rpz зануляет cloudflare.com и www.cloudflare.com: сайт и API Cloudflare недоступны клиентам
+	sed -i '/^cloudflare\.com CNAME \.$/d; /^www\.cloudflare\.com CNAME \.$/d' temp/deny.rpz
 	cp temp/deny.rpz result/deny.rpz
 
 	if [[ "$VPN_ADBLOCK" == 'y' ]]; then
