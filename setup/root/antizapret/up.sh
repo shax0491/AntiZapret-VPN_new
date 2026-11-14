@@ -786,7 +786,7 @@ if [[ "$ENABLE_IPV6" == 'y' && "$IPV6_MODE" == 'c' ]]; then
 	nft flush chain ip6 antizapret mapping_hook 2>/dev/null || true
 	nft delete chain ip6 antizapret mapping_hook 2>/dev/null || true
 	nft add chain ip6 antizapret mapping_hook '{ type nat hook prerouting priority -50 ; policy accept ; }'
-	nft add rule ip6 antizapret mapping_hook ip6 saddr { fd29:7::/64, fd29:8::/64, fd29:9::/64, fd29:10::/64, fd29:11::/64 } ip6 daddr fd00:30::/64 dnat to ip6 daddr map @mapping6
+	nft add rule ip6 antizapret mapping_hook ip6 saddr { fd29:7::/32, fd29:8::/64, fd29:9::/64, fd29:10::/64, fd29:11::/64 } ip6 daddr fd00:30::/64 dnat to ip6 daddr map @mapping6
 fi
 
 # IPv6: NAT66 клиентских ULA-подсетей, изоляция и ограничения по образцу IPv4 (fd28::/16 - Full-слои, fd29::/16 - split)
