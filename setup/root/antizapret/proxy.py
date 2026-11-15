@@ -152,11 +152,24 @@ class ProxyResolver(BaseResolver):
             subprocess.run(["/usr/sbin/nft","-f","-"],input="\n".join(rules).encode(),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True,env=self._env)
             print(f"Expired: {len(expired)} fake IPs")
 
+    def v6_tunnel(self):
+        now=time.time()
+        if now-getattr(self,"_v6t_ts",0)>5:
+            self._v6t_ts=now
+            try:
+                with open("/run/antizapret-ipv6.state",encoding="utf-8") as f:
+                    st=dict(l.strip().split("=",1) for l in f if "=" in l)
+                self._v6t=st.get("effective")!="a" and st.get("egress") in ("proton","warp") and bool(st.get("interface"))
+            except OSError:
+                self._v6t=False
+        return getattr(self,"_v6t",False)
+
     def resolve(self,request,handler):
         warp=handler.server.warp
         fake6=self.fake6 if request.q.qtype==QTYPE.AAAA else None
-        if fake6 and warp:
-            # v6 через WARP не поддерживается: пустой ответ, клиент остаётся на IPv4
+        if fake6 and warp and not self.v6_tunnel():
+            # IPv6 split-клиентов выходит нативно (IPV6_EGRESS=native): v6 через WARP-слой не поддерживается, пустой ответ,
+            # клиент остаётся на IPv4. При egress=proton|warp весь v6 fd29::/16 идёт в туннель (up.sh, таблица 13337) - AAAA отдаём
             return request.reply()
         try:
             if handler.protocol=="udp":
