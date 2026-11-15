@@ -709,6 +709,12 @@ for dev in $(printf '%s\n' "$DEFAULT_INTERFACE" "$ANTIZAPRET_OUT_INTERFACE" "$VP
 done
 ip6tables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -A OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+# MSS 1220 для IPv6-клиентов туннелей (MTU 1280 минус 40 байт IPv6 и 20 TCP): 1240 тут уже превышает MTU. SYN клиента (-s), SYN-ACK к клиенту (-d), локальный TCP (xray-az, OUTPUT)
+for net6 in fd28::/15 fd29::/16; do
+	ip6tables -w -t mangle -C FORWARD -s $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220 2>/dev/null || ip6tables -w -t mangle -A FORWARD -s $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+	ip6tables -w -t mangle -C FORWARD -d $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220 2>/dev/null || ip6tables -w -t mangle -A FORWARD -d $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+	ip6tables -w -t mangle -C OUTPUT -d $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220 2>/dev/null || ip6tables -w -t mangle -A OUTPUT -d $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+done
 
 # Disable TCP Timestamps (как у апстрима с 26.10: виновник зависаний соединений через WARP)
 iptables -w -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPOPTSTRIP --strip-options timestamp

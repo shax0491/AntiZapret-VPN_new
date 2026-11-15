@@ -166,6 +166,11 @@ for v in $(iptables -w -t mangle -S FORWARD | grep -oP '^-A FORWARD -i warp\+ .*
 done
 ip6tables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 ip6tables -w -t mangle -D OUTPUT ! -o lo -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+for net6 in fd28::/15 fd29::/16; do
+	while ip6tables -w -t mangle -D FORWARD -s $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220 2>/dev/null; do :; done
+	while ip6tables -w -t mangle -D FORWARD -d $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220 2>/dev/null; do :; done
+	while ip6tables -w -t mangle -D OUTPUT -d $net6 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220 2>/dev/null; do :; done
+done
 
 # Disable TCP Timestamps
 iptables -w -t mangle -D FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPOPTSTRIP --strip-options timestamp
