@@ -11,7 +11,8 @@ c = json.load(open(p))
 DOM = ["domain:instagram.com", "domain:cdninstagram.com", "domain:fbcdn.net", "domain:facebook.com",
        "domain:anthropic.com", "domain:claude.ai", "domain:claude.com"]
 GEMINI = ["domain:gemini.google.com", "domain:aistudio.google.com", "domain:generativelanguage.googleapis.com",
-          "domain:alkalimakersuite-pa.clients6.google.com", "domain:makersuite.google.com"]
+          "domain:alkalimakersuite-pa.clients6.google.com", "domain:makersuite.google.com",
+          "domain:geminiweb-pa.clients6.google.com", "domain:gemini.gstatic.com"]
 
 def curl_code(url, fam):
     r = subprocess.run(["curl", "-" + fam, "-s", "-o", "/dev/null", "-w", "%{http_code}", "-m", "10", url], capture_output=True, text=True)
