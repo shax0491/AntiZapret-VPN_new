@@ -132,7 +132,7 @@ Endpoint = $ANTIZAPRET_WARP_ENDPOINT" > $ANTIZAPRET_WARP_PATH
 				-d "{\"key\": \"$KEY\"}")
 
 			ANTIZAPRET_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-			ANTIZAPRET_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+			ANTIZAPRET_WARP_ENDPOINT="${WARP_ENDPOINT:-$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')}"
 			ANTIZAPRET_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 			ANTIZAPRET_WARP_ADDRESS_V6="$(echo "$REG" | jq -r '.config.interface.addresses.v6 // empty' | sed 's,/.*,,')"
 		fi
@@ -239,7 +239,7 @@ Endpoint = $VPN_WARP_ENDPOINT" > $VPN_WARP_PATH
 				-d "{\"key\": \"$KEY\"}")
 
 			VPN_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-			VPN_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+			VPN_WARP_ENDPOINT="${WARP_ENDPOINT:-$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')}"
 			VPN_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 			VPN_WARP_ADDRESS_V6="$(echo "$REG" | jq -r '.config.interface.addresses.v6 // empty' | sed 's,/.*,,')"
 		fi
@@ -340,7 +340,7 @@ if [[ "$DNS_WARP" == '2' ]]; then
 			-d "{\"key\": \"$KEY\"}")
 
 		DNS_WARP_PUBLIC_KEY=$(echo "$REG" | jq -r '.config.peers[0].public_key')
-		DNS_WARP_ENDPOINT=$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')
+		DNS_WARP_ENDPOINT="${WARP_ENDPOINT:-$(echo "$REG" | jq -r '.config.peers[0].endpoint.host')}"
 		DNS_WARP_ADDRESS="$(echo "$REG" | jq -r '.config.interface.addresses.v4')/32"
 	fi
 	DNS_WARP_IP="${DNS_WARP_ADDRESS%%/*}"
