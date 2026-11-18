@@ -1273,6 +1273,7 @@ notion.com
 mtgcardbuilder.com
 zerro.app
 railway.com
+railway.app
 stubhub.com
 citycodegame.com
 mobile.de
@@ -1306,6 +1307,8 @@ remarkable.com
 monica.im
 duck.ai
 kilo.ai
+zerkalo.xyz
+zerkalo.ink
 
 # Сертификаты
 #letsencrypt.org
