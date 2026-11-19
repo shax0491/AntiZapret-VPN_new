@@ -375,7 +375,54 @@ def ping(ip: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
+CUR_IFACE = ""   # интерфейс, который обрабатывается сейчас: IPv6 нужен только выходному (proton), warp-* v6 не несут
+
+
+def want_v6(cfg: dict[str, str]) -> bool:
+    """Нужен ли серверу Proton с IPv6: NEED_IPV6=1/0 в /etc/proton-pick.conf, иначе по ENABLE_IPV6=y в setup АнтиЗапрета."""
+    if CUR_IFACE in ("", "proton") and str(cfg.get("NEED_IPV6", "")).strip().lower() in ("1", "y", "yes", "on"):  # NEED_IPV6_PROTON: выпуск Proton под IPv6-сервер всегда
+        return True
+    if CUR_IFACE:   # IPv6 нужен только интерфейсам, через которые реально идёт выход v6 (interface / interface_full в состоянии АЗ)
+        try:
+            kv = dict(l.strip().split("=", 1) for l in open("/run/antizapret-ipv6.state").read().split() if "=" in l)
+            if CUR_IFACE not in (kv.get("interface"), kv.get("interface_full"), "proton" if not kv else None):
+                return False
+        except OSError:
+            if CUR_IFACE != "proton":
+                return False
+    v = str(cfg.get("NEED_IPV6", "")).strip().lower()
+    if v in ("0", "n", "no", "off"):
+        return False
+    if v in ("1", "y", "yes", "on"):
+        return True
+    return read_kv("/root/antizapret/setup").get("ENABLE_IPV6", "").strip().lower() == "y"
+
+
+def v6_ok(iface: str) -> bool:
+    # у части интерфейсов (warp-*) нет маршрута ::/0 в main: на время проверки ставим /128 на пробный адрес через сам интерфейс
+    tgt = "2001:4860:4860::8888"
+    run(["ip", "-6", "route", "replace", tgt + "/128", "dev", iface], 5)
+    try:
+        for _ in range(6):   # IPv6 у нового ключа может заработать на 10-20 с позже IPv4
+            if run(["ping", "-6", "-c", "2", "-W", "3", "-I", iface, tgt], 15).returncode == 0:
+                return True
+            time.sleep(4)
+        return False
+    finally:
+        run(["ip", "-6", "route", "del", tgt + "/128", "dev", iface], 5)
+
+
 def candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str, dead: set[str] = frozenset()) -> list[tuple]:
+    """Если нужен IPv6 - только серверы с признаком IPv6; нет в своей стране (в Латвии их нет вовсе) - соседние страны."""
+    if want_v6(cfg):
+        for c in [country] + [n for n in NEIGHBORS.get(country, []) if n != country]:
+            r = _candidates(servers, cfg, st, c, dead, True)
+            if r:
+                return r
+    return _candidates(servers, cfg, st, country, dead, False)
+
+
+def _candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str, dead: set[str], v6: bool) -> list[tuple]:
     tiers = {t.strip().lower() for t in cfg.get("TIERS", "Plus").split(",")}
     bad = {ip for ip, t in st.get("bad_exits", {}).items() if time.time() - t < BAD_EXIT_TTL}
     items = []
@@ -383,6 +430,8 @@ def candidates(servers: list[dict], cfg: dict[str, str], st: dict, country: str,
         if s.get("country") != country or str(s.get("tier", "")).lower() not in tiers:
             continue
         feats = {f.lower() for f in s.get("features", [])}
+        if v6 and "ipv6" not in feats:
+            continue
         if feats & {"securecore", "secure_core", "secure-core", "tor"} or s.get("entry_country", country) != country:
             continue
         for ep in s.get("endpoints", []):
@@ -545,7 +594,9 @@ def check_slow(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], 
     return why
 
 
-def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: dict, ist: dict, why: str) -> str:
+def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: dict, ist: dict, why: str, force_v6: bool = False) -> str:
+    global CUR_IFACE
+    CUR_IFACE = iface
     """Туннель долго медленный: новый ключ под лучший по пингу и загрузке сервер той же страны.
     Ключ выпускается под сервер (confgen --server), поэтому не «чужой»; одно новое подключение
     вместо прежнего - лимит аккаунта не растёт. Не стало быстрее - прежний ключ и сервер."""
@@ -556,20 +607,22 @@ def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: di
               if c[3]["entry_ip"] != cur["ip"] and int(c[2].get("load") or 100) < MOVE_LOAD]
     if not ranked:
         return f"{why}; другого сервера в {cur_srv['country']} нет"
-    _, rtt, s, _ = ranked[0]
-    log(f"{iface}: {why} ({ist['lat_bad']} проверки подряд) - ключ под {s['name']} ({rtt:.0f} мс, загрузка {s.get('load')}%)")
-    k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"], "server": s["name"], "why": why})
+    _, rtt, s, ep = ranked[0]
+    log(f"{iface}: {why} ({ist.get('lat_bad', 0)} проверки подряд) - ключ под {s['name']} ({rtt:.0f} мс, загрузка {s.get('load')}%)")
+    k, err = request_key(cfg, {"iface": iface, "entry_ip": cur["ip"], "server": s["name"], "why": why, "repick": bool(force_v6)})  # repick: раз в 10 мин, без 6-часового лимита
     ist["move_t"] = time.time()
     if not k:
         return f"{why}; {err}"
     old_priv = run(["wg", "show", iface, "private-key"]).stdout.strip()
-    before = ist["lat"].get("tun")
+    before = ist.get("lat", {}).get("tun")
     set_private_key(iface, k["private_key"])
     set_peer(iface, k["public_key"], k["entry_ip"], k["port"], cur["allowed"], cur["pub"])
     good = settle(iface, k["public_key"], 30)
+    if good and want_v6(cfg) and not v6_ok(iface):
+        good = False  # IPv6 нужен, а через этот сервер не ходит - не оставляем
     g = geo(iface) if good else {"cf": "", "yt": "", "ip": ""}
     after = rtt_ms(iface) if good else None
-    if good and geo_ok(g) and after is not None and (before is None or after < before):
+    if good and geo_ok(g) and after is not None and (force_v6 or before is None or after < before):
         persist_private_key(iface, k["private_key"])
         persist(iface, s, {"public_key": k["public_key"], "entry_ip": k["entry_ip"]}, k["port"])
         p = peer(iface)
@@ -584,6 +637,8 @@ def move(iface: str, cur: dict, servers: list[dict], cfg: dict[str, str], st: di
     set_peer(iface, cur["pub"], cur["ip"], cur["port"], cur["allowed"], k["public_key"])
     settle(iface, cur["pub"], 20)
     confirm(cfg, iface, cur["ip"], k, False)
+    if force_v6 and not good and st is not None:
+        st.setdefault("bad_exits", {})[ep["exit_ip"]] = time.time()  # не предлагать этот сервер снова (BAD_EXIT_TTL)
     return (f"{why}; {s['name']} не лучше (работает={good}, YouTube {g['yt'] or '?'}, отклик {after and round(after)} мс) "
             f"- возвращён прежний {cur['ip']}")
 
@@ -754,6 +809,8 @@ def rekey(iface: str, cur: dict, cfg: dict[str, str], ist: dict,
 def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: float, force: bool,
                 cfg: dict[str, str] | None = None, servers: list[dict] | None = None, st: dict | None = None) -> str:
     cfg = cfg or {}
+    global CUR_IFACE
+    CUR_IFACE = iface
     """Режим по умолчанию: туннель остаётся на своём сервере (под который выпущен ключ).
     22.10 выяснилось: у аккаунта Proton лимит одновременных подключений, и каждое подключение
     ключа к новому серверу выбивает сессию другого туннеля (на другом узле), а ключ на чужом
@@ -781,6 +838,13 @@ def native_mode(iface: str, cur: dict, ok: bool, reason: str, ist: dict, now: fl
         ist["geo_alert"] = reason
         return f"ВНИМАНИЕ: {reason}; нужен ключ Proton под другой сервер (AUTO_SWITCH=n)"
     ist.pop("geo_alert", None)
+    if servers and cfg.get("REKEY_URL") and cfg.get("REKEY_TOKEN") and want_v6(cfg):
+        srv6, _ = find_server(servers, cur["pub"])
+        if srv6 and "IPv6" not in srv6.get("features", []) and (force or now - ist.get("v6_move_t", 0) > MOVE_EVERY):
+            res6 = move(iface, cur, servers, cfg, st if st is not None else {}, ist, "у сервера нет IPv6", True)
+            # удалось - следующая проверка не раньше MOVE_EVERY; не вышло (429 «другой узел менял», нет IPv6-сервера) - повтор через 20 минут
+            ist["v6_move_t"] = now if res6.startswith("перешёл") else now - MOVE_EVERY + 1200
+            return res6
     if servers and cfg.get("REKEY_URL") and cfg.get("REKEY_TOKEN"):
         why = check_slow(iface, cur, servers, cfg, ist)
         if why:
@@ -940,6 +1004,8 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="только показать, что было бы выбрано")
     ap.add_argument("--install", action="store_true", help="установить systemd-таймер")
     ap.add_argument("--status", action="store_true", help="показать сохранённое состояние")
+    ap.add_argument("--v6move", metavar="IFACE", help="перевыпустить ключ под ближайший сервер Proton с IPv6")
+    ap.add_argument("--rekeyhere", metavar="IFACE", help="новый ключ под ТОТ ЖЕ сервер (перенос на другой аккаунт Proton)")
     ap.add_argument("--repick", metavar="IFACE", help="подобрать туннелю самый быстрый сервер своей страны (новый ключ)")
     a = ap.parse_args()
     if a.install:
@@ -962,6 +1028,28 @@ def main() -> int:
             log("Proton-туннелей нет")
             return 0
         servers = server_list(cfg, st)
+        if a.rekeyhere:
+            c0 = peer(a.rekeyhere) if a.rekeyhere in names else None
+            if not c0 or not cfg.get("REKEY_URL"):
+                log(f"{a.rekeyhere}: перевыпуск невозможен (нет туннеля или REKEY_URL)")
+                return 1
+            ist0 = st.setdefault("ifaces", {}).setdefault(a.rekeyhere, {})
+            res = rekey(a.rekeyhere, c0, cfg, ist0, None, None)
+            ist0.update(last=res, last_t=time.strftime("%F %T"))
+            log(f"{a.rekeyhere}: {res}")
+            save_state(st)
+            return 0
+        if a.v6move:
+            c0 = peer(a.v6move) if a.v6move in names else None
+            if not c0 or not servers or not cfg.get("REKEY_URL"):
+                log(f"{a.v6move}: перевыпуск невозможен (нет туннеля, списка серверов или REKEY_URL)")
+                return 1
+            ist0 = st.setdefault("ifaces", {}).setdefault(a.v6move, {})
+            res = move(a.v6move, c0, servers, cfg, st, ist0, "нужен IPv6", True)
+            ist0.update(last=res, last_t=time.strftime("%F %T"))
+            log(f"{a.v6move}: {res}")
+            save_state(st)
+            return 0
         if a.repick:
             if a.repick not in names or not servers or not cfg.get("REKEY_URL"):
                 log(f"{a.repick}: подбор невозможен (нет туннеля, списка серверов или REKEY_URL)")
