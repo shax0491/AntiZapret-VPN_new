@@ -630,3 +630,19 @@ GeoHide (пункт "8) GeoHide \*\*" для AntiZapret VPN и "9) GeoHide \*\*"
 bash <(wget -qO- https://censorcheck.vrnt.xyz) --mode dpi
 ```
 На сам VPN-сервер он не устанавливается и не запускается автоматически: сервер и так расположен вне зоны блокировок, поэтому результат проверки на нём не даёт полезной информации о том, что видит реальный клиент.
+
+## Proton VPN: схема аккаунтов, ключи и Hysteria2 через Proton
+
+Лимит Proton - одновременные подключения аккаунта, каждый туннель = отдельный ключ. Рабочая схема:
+
+| Аккаунт | Что на нём | Интерфейсы узла |
+|---|---|---|
+| Первый (`PROTON_USER`) | АнтиЗапрет и полный VPN, у каждого свой ключ | `warp-antizapret`, `warp-vpn` |
+| Второй (`PROTON_USER2`) | Mihomo-выход VLESS и Hysteria2 | `proton`, `proton-hy` |
+
+* **Сервер ключей** (`/opt/proton-auto/rekey.py`) выбирает аккаунт по интерфейсу: `PROTON_ACC2_IFACES=proton` и `PROTON_HY_ACC2_NODES=DE1,DE2,...` в `/opt/proton-auto/env`; ключи выпускаются с `--ipv6`, старый ключ отзывается на обоих аккаунтах.
+* **АнтиЗапрет/VPN через Proton на узле:** `python3 /root/antizapret/proton-az-setup.py az` (или `vpn`) - берёт новый ключ у сервера ключей, пишет `PROTON_*` и режим `ANTIZAPRET_WARP=2`/`VPN_WARP=2` в `setup`; затем `systemctl restart antizapret` и `python3 /root/antizapret/proton-az-confirm.py az`.
+* **Hysteria2 через Proton:** `python3 /root/antizapret/proton-hy-setup.py` - интерфейс `proton-hy` (свой ключ, IPv4 + IPv6) и второй экземпляр `hysteria-proton` на UDP 8444 (выход через Proton); порт 8443 остаётся прямым выходом. Нужен уже работающий `hysteria-server` и интерфейс `proton`.
+* **Автоперевыпуск:** `proton-pick.py` (таймер) ведёт `proton`, `proton-hy`, `warp-antizapret`, `warp-vpn`; `proton-pick.py --rekeyhere IFACE` - новый ключ под тот же сервер (например после смены аккаунта).
+* **Сессия аккаунта** хранится в `~/.protonvpn-session.json` (30 дней). Обновить: `cd /opt/proton-auto && HOME=/root/proton2 ./bin/protonvpn-wg-confgen --username <почта> --clear-session --list-configs --json` (спросит пароль и код 2FA).
+* **IPv6 на выходе:** `proton` и `proton-hy` получают адрес `2a07:b944::2:2/128` и маршрут `::/0`; xray узла выходит на сайты с AAAA через IPv6 (`UseIPv6v4`), клиентам IPv6 не раздаётся.

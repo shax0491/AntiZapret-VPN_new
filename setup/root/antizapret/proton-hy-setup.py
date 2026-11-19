@@ -13,15 +13,15 @@ if not os.path.exists(W):
     open(W, "w").write(f"""# Proton VPN {k['server']} - отдельный ключ Hysteria2 (выход hysteria-proton через интерфейс proton-hy)
 [Interface]
 PrivateKey = {k['private_key']}
-Address = 10.2.0.2/32
+Address = 10.2.0.2/32, 2a07:b944::2:2/128
 MTU = 1280
 Table = off
-PostUp = ip route replace default dev proton-hy table 51821; ip rule add oif proton-hy lookup 51821 pref 1001
-PostDown = ip rule del oif proton-hy lookup 51821 pref 1001; ip route flush table 51821
+PostUp = ip route replace default dev proton-hy table 51821; ip rule add oif proton-hy lookup 51821 pref 1001; ip -6 route replace default dev proton-hy table 51821; ip -6 rule add oif proton-hy lookup 51821 pref 1001
+PostDown = ip rule del oif proton-hy lookup 51821 pref 1001; ip route flush table 51821; ip -6 rule del oif proton-hy lookup 51821 pref 1001; ip -6 route flush table 51821
 
 [Peer]
 PublicKey = {k['public_key']}
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = {k['entry_ip']}:{k['port']}
 PersistentKeepalive = 25
 """)
@@ -34,7 +34,7 @@ PersistentKeepalive = 25
 y = open("/etc/hysteria/config.yaml").read()
 y = re.sub(r"^listen: .*$", f"listen: :{HY_PORT}", y, flags=re.M)
 y = y.replace("    - direct(all)", "    - proton(all)")
-y += "\noutbounds:\n  - name: proton\n    type: direct\n    direct:\n      mode: 4\n      bindDevice: proton-hy\n"
+y += "\noutbounds:\n  - name: proton\n    type: direct\n    direct:\n      mode: auto\n      bindDevice: proton-hy\n"
 open("/etc/hysteria/config-proton.yaml", "w").write(y)
 os.chmod("/etc/hysteria/config-proton.yaml", 0o640); shutil.chown("/etc/hysteria/config-proton.yaml", group="hysteria")
 u = open("/etc/systemd/system/hysteria-server.service").read()
