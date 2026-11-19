@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import concurrent.futures
+import ipaddress
+import json
+import socket
+import time
+from typing import Any
+
+
+def _quoted(value: Any) -> str:
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+DNS_TIMEOUT = 2.0
+DNS_CACHE_TTL = 300.0
+_DNS_CACHE: dict[tuple[str, str, str], tuple[float, bool]] = {}
+
+
+def _dual_stack_dns_matches(host: str, ipv4: str, ipv6: str) -> bool:
+    key = (host, ipv4, ipv6)
+    now = time.monotonic()
+    cached = _DNS_CACHE.get(key)
+    if cached and now - cached[0] < DNS_CACHE_TTL:
+        return cached[1]
+    result = _resolve_matches(host, ipv4, ipv6)
+    _DNS_CACHE[key] = (now, result)  # отрицательный результат тоже кэшируем: зависший DNS не тормозит каждый запрос
+    return result
+
+
+def _resolve_matches(host: str, ipv4: str, ipv6: str) -> bool:
+    try:
+        expected4 = ipaddress.IPv4Address(ipv4)
+        expected6 = ipaddress.IPv6Address(ipv6)
+    except ValueError:
+        return False
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        answers = pool.submit(socket.getaddrinfo, host, 0).result(timeout=DNS_TIMEOUT)
+    except (OSError, concurrent.futures.TimeoutError):
+        return False
+    finally:
+        pool.shutdown(wait=False)
+    resolved4 = {ipaddress.IPv4Address(item[4][0]) for item in answers if item[0] == socket.AF_INET}
+    resolved6 = {ipaddress.IPv6Address(item[4][0].split("%")[0]) for item in answers if item[0] == socket.AF_INET6}
+    return expected4 in resolved4 and expected6 in resolved6
+
+
+def _valid_ipv4(value: Any) -> str | None:
+    try:
+        return str(ipaddress.IPv4Address(str(value)))
+    except ValueError:
+        return None
+
+
+def _entry(name: str, host: str, port: int, node: dict[str, Any]) -> str:
+    return (
+        "  - {name: "
+        + _quoted(name)
+        + ", type: vless, server: "
+        + _quoted(host)
+        + f", port: {int(port)}, uuid: "
+        + _quoted(node["uuid"])
+        + ", flow: xtls-rprx-vision, network: tcp, udp: true, tls: true, servername: "
+        + _quoted(node["sni"])
+        + ", client-fingerprint: chrome, reality-opts: {public-key: "
+        + _quoted(node["pub"])
+        + ", short-id: "
+        + _quoted(node["sid"])
+        + "}}"
+    )
+
+
+def _hy2_entry(node: dict[str, Any], host: str, proton: bool = False) -> str:
+    """Дополнительный выход Hysteria2 (UDP, самоподписанный сертификат узла проверяется по пину sha256, не skip-cert-verify).
+    Данные берутся из nodes.json: "hy2": {"port": 8443, "password": "...", "pin": "AA:BB:...", "sni": "bing.com"}."""
+    hy2 = dict(node["hy2"], **node["hy2p"]) if proton else node["hy2"]   # hy2p: второй экземпляр hysteria с выходом через Proton, тот же сертификат
+    pin = str(hy2["pin"]).replace(":", "").lower()
+    return (
+        "  - {name: "
+        + _quoted(f"{node['flag']} {node['key']} | Hysteria Proton" if proton else f"{node['flag']} {node['key']} | Hysteria2")
+        + ", type: hysteria2, server: "
+        + _quoted(host)
+        + f", port: {int(hy2['port'])}, password: "
+        + _quoted(hy2["password"])
+        + ", sni: "
+        + _quoted(hy2.get("sni", "bing.com"))
+        + ", fingerprint: "
+        + _quoted(pin)
+        + ", alpn: [h3]}"
+    )
+
+
+def build_subscription(nodes: list[dict[str, Any]], prio: bool = False, ipv4_only: bool = False) -> str:
+    """Единая сборка подписки az-vless (её вызывает и production server.py).
+
+    Имена «<флаг> <узел> | VLESS Proton|прямой» не меняются. prio=True («Приоритет IPv6»): тот же узел и вариант,
+    но порт со входа routeOnly=false (port_proton_v6 / port_direct_v6) - IPv4-запрос Dual-Stack сайта выходит по IPv6.
+    ipv4_only=True: без IPv6 и Dual-Stack вариантов узла. Отдельных видимых ⚡-входов нет: их работу выполняет prio.
+    """
+    lines = ["proxies:"]
+    for node in nodes:
+        start = len(lines)
+        # ipv4_address, не являющийся IPv4 (в production-узле DE1 там 2001:db8::1), не используем как адрес входа
+        ipv4_host = _valid_ipv4(node.get("ipv4_address")) or str(node["host"])
+        ipv6 = None if ipv4_only else (node.get("ipv6_address") or node.get("ipv6"))
+        if ipv6 and node.get("ipv6_probe_status") != "online":
+            ipv6 = None
+        dual_stack_host = None if ipv4_only else (node.get("dual_stack_host") or node.get("ds_host"))
+        if dual_stack_host and ipv6 and not _dual_stack_dns_matches(str(dual_stack_host), ipv4_host, str(ipv6).split("/")[0]):
+            dual_stack_host = None
+        for mode, key, key_v6, default in (
+            ("Proton", "port_proton", "port_proton_v6", 8445),
+            ("прямой", "port_direct", "port_direct_v6", 8443),
+        ):
+            port = node.get(key, default)
+            if not port:  # узел без Proton (port_proton = 0) - только прямой вариант
+                continue
+            if prio and not ipv4_only:
+                port = node.get(key_v6) or port
+            variants = [(ipv4_host, mode)]
+            if ipv6:
+                address = str(ipaddress.IPv6Address(str(ipv6).split("/")[0]))
+                variants.append((address, "IPv6" if mode == "прямой" else f"{mode} IPv6"))
+            if dual_stack_host:
+                variants.append((str(dual_stack_host), "Dual-Stack" if mode == "прямой" else f"{mode} Dual-Stack"))
+            for host, variant in variants:
+                lines.append(_entry(f"{node['flag']} {node['key']} | VLESS {variant}", host, port, node))
+        if node.get("hy2"):  # дополнительный протокол: VLESS-выходы не заменяются и в «Авто» не входят (фильтры по «VLESS»)
+            lines.append(_hy2_entry(node, ipv4_host))
+            if node.get("hy2p"):   # «Hysteria Proton»: выход VPS через Proton (в «Авто — самый быстрый»)
+                lines.append(_hy2_entry(node, ipv4_host, True))
+        # порядок внутри узла: VLESS Proton, Hysteria Proton, затем прямой VPS (VLESS, Hysteria2)
+        seg = lines[start:]
+        seg.sort(key=lambda l: 0 if "VLESS Proton" in l else 1 if "Hysteria Proton" in l else 2 if "VLESS" in l else 3)
+        lines[start:] = seg
+    return "\n".join(lines) + "\n"
