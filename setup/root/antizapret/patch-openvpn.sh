@@ -50,7 +50,6 @@ if [[ "$ALGORITHM" == '1' ]]; then
 		dpkg --configure -a --force-confdef --force-confold
 		apt-get update
 		apt-get install -f -y
-		apt-get dist-upgrade -y --fix-missing -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
 		apt-get install -y openvpn
 		apt-get autoremove --purge -y
 		apt-get clean
@@ -80,7 +79,7 @@ fi
 dpkg --configure -a --force-confdef --force-confold
 apt-get update
 apt-get install -f -y
-apt-get dist-upgrade -y --fix-missing -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold
+# dist-upgrade убран 19.11: он обновлял docker-ce и перезапускал docker, из-за чего падали все MTProxy (контейнеры) на узле
 apt-get install -y openvpn curl tar build-essential pkg-config libssl-dev libsystemd-dev libnl-genl-3-dev libcap-ng-dev
 apt-get autoremove --purge -y
 apt-get clean
