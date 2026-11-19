@@ -152,6 +152,8 @@ def interfaces(cfg: dict[str, str]) -> list[str]:
         names = []
         if os.path.exists("/etc/wireguard/proton.conf"):
             names.append("proton")
+        if os.path.exists("/etc/wireguard/proton-hy.conf"):
+            names.append("proton-hy")   # ключ Hysteria2 (hysteria-proton), перевыпускается как остальные
         setup = read_kv(SETUP)
         if setup.get("WARP_PROVIDER") == "proton":
             if setup.get("ANTIZAPRET_WARP", "1") != "1":
