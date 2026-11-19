@@ -90,6 +90,11 @@ curl -fL --connect-timeout 30 https://build.openvpn.net/downloads/releases/openv
 tar --strip-components=1 -xvzf /usr/local/src/openvpn.tar.gz -C /usr/local/src/openvpn
 rm -f /usr/local/src/openvpn.tar.gz
 
+# crypto.h нужен для prng_bytes() (апстрим 19.11: случайные байты мусора из PRNG OpenVPN вместо random())
+sed -i '/#include "socket_util.h"/a\
+#include "crypto.h"
+' /usr/local/src/openvpn/src/openvpn/socket.h
+
 sed -i '/link_socket_write_udp(struct link_socket \*sock/,/^$/c\
 link_socket_write_udp(struct link_socket *sock,\
 					struct buffer *buf,\
@@ -116,18 +121,11 @@ link_socket_write_udp(struct link_socket *sock,\
 			if (error_free) {\
 				memcpy(data, BPTR(buf), buffer_len);\
 				data[0] = (uint8_t)40;\
-				for (int k = buffer_len; k < data_len; k++) {\
-					data[k] = (uint8_t)(random() % 256);\
-				}\
+				prng_bytes(data + buffer_len, data_len - buffer_len);\
 			} else {\
-				uint8_t first_byte;\
-				do {\
-					first_byte = (uint8_t)(random() % 256);\
-				} while ((first_byte >> 3) >= 1 && (first_byte >> 3) <= 11);\
-				data[0] = first_byte;\
-				for (int k = 1; k < data_len; k++) {\
-					data[k] = (uint8_t)(random() % 256);\
-				}\
+				prng_bytes(data, data_len);\
+				if ((data[0] >> 3) >= 1 && (data[0] >> 3) <= 11)\
+					data[0] = (uint8_t)(data[0] & 0x07);\
 			}\
 			struct buffer data_buffer = alloc_buf(data_len);\
 			buf_write(&data_buffer, data, data_len);\
