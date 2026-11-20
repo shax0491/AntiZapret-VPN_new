@@ -54,8 +54,10 @@ cd /root/az-guard
 * Роутер: `interface <WAN> ipv6 address auto` даёт только /128 самому роутеру (нужен для реверса по v6). `ipv6 prefix auto` + `ipv6 subnet Default` раздаст /56 в LAN, но клиенты политики Mihomo тогда выйдут по v6 мимо Mihomo, поэтому в LAN IPv6 **не раздаётся**, а `ipv6: false` остаётся в `home.yaml`.
 
 ## Известные ограничения
-* v6 через Proton/WARP на нодах нет (профили без `::/0`): клиентский v6 режется REJECT.
-* Нода после ребута: `ip rule` восстанавливаются PostUp wg-quick и `--boot`; реальный ребут NL2 не проводился.
+* v6 через WARP на нодах нет (профили без `::/0`): аудит пишет `warp-antizapret / warp-vpn v6: выхода нет` - это не утечка, v6 клиентов идёт через proton, при его падении blackhole. Через Proton v6 есть.
+* Ребут проверен на LV1 (20.11): после старта guard-юнит, правила (v4+v6), цепочки, таблица 100, Proton/WARP, MTProxy восстанавливаются сами. Первый ребут выявил ошибку: `oif proton lookup 51820` в `BASE_RULES` вместе с PostUp wg-quick даёт `RTNETLINK: File exists`, `wg-quick@proton` падает. Правила `oif ...` в `BASE_RULES` не класть.
+* IPv6 слоёв: установщик `az-guard-install.sh` выставляет `HAS_IPV6=0`, если на хосте нет нативного v6, и не заполняет v6-подсети слоёв. Для панели (колонка IPv6) и NAT66 нужно `HAS_IPV6=1` и v6-подсети из адресов интерфейсов (`ip -6 addr show dev <iface> scope global`): awg1 `fd28:7::/64,fd29:7::/64`, antizapret-udp `fd29:10::/64`, antizapret-tcp `fd29:11::/64`, vpn-udp `fd28:10::/64`, vpn-tcp `fd28:11::/64`. Без `AZ_EGRESS_NAT` для этих подсетей v6 клиента уходит в Proton с ULA-источником и теряется (v4 при этом работает; случай роутера клиента AWG3 на NL2, 20.11).
+* Процедура на узле: `az-guard-install.sh --guard y --no-apply` -> проверить `/etc/az-guard.conf` (HAS_IPV6, v6-подсети, `BASE_RULES` без `oif`) -> `az-guard-test.sh --apply` -> снять его таймер отката и `.armed` -> `--apply` (при `RTNETLINK: File exists` повторить) -> `az-audit.sh` -> `--commit` -> `systemctl start az-egress-monitor` -> убрать остаточные `az-rollback-*.timer`.
 * `AZ_EGRESS_NAT` подразумевает MASQUERADE на egress; при наличии собственных SNAT-правил AntiZapret они дублируются безвредно (наша цепочка первая).
 
 ## Ревью и проверки (10.11.2026)

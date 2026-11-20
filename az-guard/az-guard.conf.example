@@ -5,12 +5,11 @@ INGRESS_IPS="45.133.119.44"                  # входные IP ноды (egres
 PANEL_PORT=9100                              # порт node-agent (ограничен правилами az-panel-only)
 # LAYERS: имя:iface:v4cidr[,..]:v6cidr[,..] через пробел. iface = клиентский интерфейс слоя (AWG 1.5/2/3, WG, OpenVPN tun).
 LAYERS="AZ-WG:antizapret:10.29.8.0/24: AZ-AWG:antizapret2:10.29.9.0/24: VPN-WG:vpn:10.28.8.0/24: VPN-AWG:vpn2:10.28.9.0/24: AWG15:awg1:10.9.0.0/24,10.9.1.0/24: OVPN-AZ-U:antizapret-udp:10.29.0.0/22: OVPN-AZ-T:antizapret-tcp:10.29.4.0/22: OVPN-V-U:vpn-udp:10.28.0.0/22: OVPN-V-T:vpn-tcp:10.28.4.0/22:"
+# ВНИМАНИЕ: правила "oif <egress> lookup ..." (prio 1000/1001) сюда НЕ класть: их добавляет PostUp wg-quick (ip rule add без проверки),
+# а --boot ставит BASE_RULES раньше туннелей -> "File exists", wg-quick@proton падает и удаляет интерфейс (ребут LV1 20.11).
 # Базовые policy-правила AntiZapret/Proton, которые монитор возвращает после networkctl reconfigure ("семейство|аргументы ip rule add").
-BASE_RULES="-4|oif proton lookup 51820 priority 1000
--4|from 10.29.0.0/16 to 10.29.0.0/16 lookup main priority 5000
+BASE_RULES="-4|from 10.29.0.0/16 to 10.29.0.0/16 lookup main priority 5000
 -4|from 10.9.0.0/24 to 10.9.0.0/24 lookup main priority 5000
 -4|from 10.9.1.0/24 to 10.9.1.0/24 lookup main priority 5000
 -4|from 10.29.0.0/16 lookup 13335 priority 10000
--4|from 10.9.0.0/24 lookup 13335 priority 10000
--6|oif proton lookup 51820 priority 1000
--6|oif warp-antizapret lookup 13335 priority 1001"
+-4|from 10.9.0.0/24 lookup 13335 priority 10000"
