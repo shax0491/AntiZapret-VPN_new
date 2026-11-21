@@ -263,6 +263,7 @@ addWireGuard(){
 				exit 5
 			fi
 		done
+		CLIENT_IPV6="fd29:8::$(printf '%x' "${CLIENT_IP##*.}")"
 		echo "# Client = ${CLIENT_NAME}
 # PrivateKey = ${CLIENT_PRIVATE_KEY}
 [Peer]
@@ -302,6 +303,7 @@ AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 				exit 6
 			fi
 		done
+		CLIENT_IPV6="fd28:8::$(printf '%x' "${CLIENT_IP##*.}")"
 		echo "# Client = ${CLIENT_NAME}
 # PrivateKey = ${CLIENT_PRIVATE_KEY}
 [Peer]
@@ -433,6 +435,7 @@ addAmneziaWG2(){
 				exit 9
 			fi
 		done
+		CLIENT_IPV6="fd29:9::$(printf '%x' "${CLIENT_IP##*.}")"
 		echo "# Client = ${CLIENT_NAME}
 # PrivateKey = ${CLIENT_PRIVATE_KEY}
 [Peer]
@@ -472,6 +475,7 @@ AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 				exit 10
 			fi
 		done
+		CLIENT_IPV6="fd28:9::$(printf '%x' "${CLIENT_IP##*.}")"
 		echo "# Client = ${CLIENT_NAME}
 # PrivateKey = ${CLIENT_PRIVATE_KEY}
 [Peer]
