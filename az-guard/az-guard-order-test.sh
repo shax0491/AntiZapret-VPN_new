@@ -13,4 +13,8 @@ ipt_last $b filter $C -i eth9 $R                      # идемпотентно
 rules=$($b -w -S $C | tail -n +2)
 [ "$(echo "$rules" | grep -c REJECT)" = 1 ] || { echo "[FAIL] REJECT не один:"; echo "$rules"; exit 1; }
 echo "$rules" | sed -n '$p' | grep -q REJECT && echo "$rules" | head -1 | grep -q RETURN || { echo "[FAIL] порядок:"; echo "$rules"; exit 1; }
+# чистая цепочка: единственный вызов обязан оставить правило (раньше -A затем -D стирало его)
+$b -w -N T_CLEAN
+ipt_last $b filter T_CLEAN -i eth8 $R
+[ "$($b -w -S T_CLEAN | tail -n +2 | grep -c REJECT)" = 1 ] || { echo "[FAIL] на чистой цепочке REJECT пропал"; exit 1; }
 echo "[PASS] RETURN стоит перед REJECT, REJECT один"
