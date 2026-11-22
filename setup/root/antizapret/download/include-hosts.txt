@@ -1273,6 +1273,7 @@ notion.com
 mtgcardbuilder.com
 zerro.app
 railway.com
+railway.app
 stubhub.com
 citycodegame.com
 mobile.de
@@ -1305,6 +1306,12 @@ epidemicsound.com
 remarkable.com
 monica.im
 duck.ai
+kilo.ai
+zerkalo.xyz
+zerkalo.ink
+#scryfall.com
+cards.scryfall.io
+bytesroute.com
 
 # Сертификаты
 #letsencrypt.org

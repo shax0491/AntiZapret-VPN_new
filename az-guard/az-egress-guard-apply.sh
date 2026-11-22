@@ -83,10 +83,10 @@ apply_family(){
     IFS=':' read -r name iface v4s v6s <<<"$L"
     if [ "$v6" = 1 ]; then
       if [ "$HAS_IPV6" = 1 ]; then for e in $EGRESS_IFACES; do ipt_rule "$bin" filter "$CHAIN" -i "$iface" -o "$e" -j RETURN; done; fi
-      ipt_rule "$bin" filter "$CHAIN" -i "$iface" -j REJECT --reject-with icmp6-adm-prohibited   # по iface, не по подсети
+      ipt_last "$bin" filter "$CHAIN" -i "$iface" -j REJECT --reject-with icmp6-adm-prohibited   # по iface, не по подсети
     else
       for e in $EGRESS_IFACES; do ipt_rule "$bin" filter "$CHAIN" -i "$iface" -o "$e" -j RETURN; done
-      ipt_rule "$bin" filter "$CHAIN" -i "$iface" -j DROP
+      ipt_last "$bin" filter "$CHAIN" -i "$iface" -j DROP
     fi
   done
 }

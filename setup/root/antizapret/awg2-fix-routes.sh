@@ -16,7 +16,11 @@
 # already-correct route).
 set -uo pipefail
 IFACE="${1:-%i}"
-awg show "$IFACE" allowed-ips 2>/dev/null | while read -r _pubkey cidr; do
-	ip="${cidr%/*}"
-	[ -n "$ip" ] && ip route replace "$ip/32" dev "$IFACE" metric 50
+# У пира может быть несколько AllowedIPs (IPv4 и IPv6) - разбираем каждый отдельно, IPv6 пропускаем
+awg show "$IFACE" allowed-ips 2>/dev/null | while read -r _pubkey cidrs; do
+	for cidr in $cidrs; do
+		ip="${cidr%/*}"
+		[[ "$ip" == *:* || -z "$ip" || "$cidr" == "(none)" ]] && continue
+		ip route replace "$ip/32" dev "$IFACE" metric 50
+	done
 done

@@ -30,6 +30,28 @@ cd /root
 # ниже видят заполненную переменную и не спрашивают. Ключи Proton/Cloudflare, доменные имена,
 # MTU и параметры обфускации AmneziaWG 2 сохраняются, перезагрузки в конце нет.
 [[ "$1" == '--update' ]] && AZ_UPDATE=y
+# Установка без единого вопроса: setup.sh --auto (или AZ_AUTO=y). Ответы по умолчанию те же, что
+# предлагают вопросы; WARP/Proton выключены (не нужны ключи и регистрация). Любой ответ можно задать
+# переменной окружения заранее, например: AZ_AUTO=y OPENVPN_HOST=vpn.example.com ANTIZAPRET_WARP=2 ./setup.sh
+# AZ_NO_REBOOT=y - не перезагружаться в конце (ядро с модулем AmneziaWG вступит в силу после ручной перезагрузки)
+[[ "$1" == '--auto' ]] && AZ_AUTO=y
+AZ_DEFAULTS=(OPENVPN_UDP_ENABLE=y OPENVPN_TCP_ENABLE=n WIREGUARD_ENABLE=y AWG2_MASQUERADE=2
+	OPENVPN_PATCH=2 OPENVPN_DCO=y ANTIZAPRET_WARP=2 VPN_WARP=2 DNS_WARP=1 WARP_MTU=1280 WARP_PROTECTION=y
+	ANTIZAPRET_DNS=1 VPN_DNS=1 ANTIZAPRET_ADBLOCK=y VPN_ADBLOCK=n ALTERNATIVE_CLIENT_IP=n
+	ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y
+	OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y
+	FLOOD_PROTECTION=y TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y
+	TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n AZ_DUALSTACK=n AZ_EGRESS_GUARD=n AZ_REVERSE_TUNNEL=n
+	WARP_PROVIDER_CHOICE=1)
+if [[ "$AZ_AUTO" == 'y' && "$AZ_UPDATE" != 'y' ]]; then
+	ANTIZAPRET_WARP="${ANTIZAPRET_WARP:-1}"
+	VPN_WARP="${VPN_WARP:-1}"
+	for AZ_DEFAULT in "${AZ_DEFAULTS[@]}"; do
+		AZ_DEFAULT_NAME="${AZ_DEFAULT%%=*}"
+		[[ -z "${!AZ_DEFAULT_NAME}" ]] && printf -v "$AZ_DEFAULT_NAME" '%s' "${AZ_DEFAULT#*=}"
+	done
+	echo 'Auto mode: no questions, default answers (WARP off unless ANTIZAPRET_WARP/VPN_WARP are set)'
+fi
 if [[ "$AZ_UPDATE" == 'y' ]]; then
 	if [[ ! -f /root/antizapret/setup ]]; then
 		echo 'Error: --update needs an existing installation (/root/antizapret/setup not found)!'
@@ -41,13 +63,7 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	# Параметры, которых не было в setup на момент установки (их добавили в форк позже), получают
 	# то же значение по умолчанию, что предлагает вопрос ниже: отвечать при --update некому,
 	# и цикл "until ... read" без ввода крутился бы вечно
-	for AZ_DEFAULT in OPENVPN_UDP_ENABLE=y OPENVPN_TCP_ENABLE=n WIREGUARD_ENABLE=y AWG2_MASQUERADE=2 \
-		OPENVPN_PATCH=2 OPENVPN_DCO=y ANTIZAPRET_WARP=2 VPN_WARP=2 DNS_WARP=1 WARP_MTU=1280 WARP_PROTECTION=y \
-		ANTIZAPRET_DNS=1 VPN_DNS=1 ANTIZAPRET_ADBLOCK=y VPN_ADBLOCK=n ALTERNATIVE_CLIENT_IP=n \
-		ALTERNATIVE_FAKE_IP=y OPENVPN_BACKUP_UDP=y OPENVPN_BACKUP_TCP=n WIREGUARD_BACKUP=y \
-		OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y \
-		FLOOD_PROTECTION=y TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y \
-		TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n AZ_DUALSTACK=n AZ_EGRESS_GUARD=n AZ_REVERSE_TUNNEL=n; do
+	for AZ_DEFAULT in "${AZ_DEFAULTS[@]}"; do
 		AZ_DEFAULT_NAME="${AZ_DEFAULT%%=*}"
 		if [[ -z "${!AZ_DEFAULT_NAME}" ]]; then
 			printf -v "$AZ_DEFAULT_NAME" '%s' "${AZ_DEFAULT#*=}"
@@ -493,7 +509,7 @@ until [[ "$AZ_REVERSE_TUNNEL" =~ (y|n) ]]; do
 done
 echo
 # При обновлении доменные имена берём из setup как есть (пустое значение - тоже ответ)
-if [[ "$AZ_UPDATE" != 'y' ]]; then
+if [[ "$AZ_UPDATE" != 'y' && "$AZ_AUTO" != 'y' ]]; then
 	while read -rp 'Enter valid domain name for this OpenVPN server or press Enter to skip: ' -e OPENVPN_HOST
 	do
 		[[ -z "$OPENVPN_HOST" ]] && break
@@ -561,7 +577,6 @@ apt-get purge -y upower
 apt-get purge -y multipath-tools
 apt-get purge -y rsyslog
 apt-get purge -y udisks2
-apt-get purge -y qemu-guest-agent
 apt-get purge -y tuned
 apt-get purge -y sysstat
 apt-get purge -y acpid
@@ -712,7 +727,7 @@ else
 	INSTALL="linux-image-$ARCH linux-headers-$ARCH"
 fi
 apt-mark unhold $KERNEL_META &>/dev/null || true
-apt-get install -y $INSTALL git make openvpn iptables nftables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms conntrack
+apt-get install -y $INSTALL build-essential git make openvpn iptables nftables easy-rsa gawk knot-resolver idn sipcalc python3-pip wireguard diffutils socat lua-cqueues ipset irqbalance unattended-upgrades jq iproute2 dkms conntrack
 # Общая служба openvpn не нужна: серверы запускаются через openvpn-server@
 systemctl disable --now openvpn 2>/dev/null || true
 # Заголовки текущего ядра для сборки модуля AmneziaWG; старого ядра в репозитории может уже не быть
@@ -1246,4 +1261,8 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 	exit 0
 fi
 echo -e '\e[1;32mAntiZapret VPN + full VPN installed successfully!\e[0m'
+if [[ "$AZ_NO_REBOOT" == 'y' ]]; then
+	echo -e '\e[1;33mReboot the server to finish the installation (AZ_NO_REBOOT=y)\e[0m'
+	exit 0
+fi
 reboot
