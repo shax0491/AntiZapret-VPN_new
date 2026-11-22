@@ -48,7 +48,8 @@ def types_ns(**kw):
 
 
 def run(node, path=None):
-    env = dict(os.environ, AZ_DUAL_PROFILE=str(node.profile), AZ_DUAL_AWG_CONF=str(node.conf), AZ_DUAL_MAP=str(node.map))
+    env = dict(os.environ, AZ_DUAL_PROFILE=str(node.profile), AZ_DUAL_AWG_CONF=str(node.conf), AZ_DUAL_MAP=str(node.map),
+               AZ_DUAL_SETUP=str(node.map.parent.parent / "setup"))  # нет файла setup: профиль по умолчанию dual, как в client.sh
     if path:
         env["PATH"] = path + os.pathsep + env["PATH"]
     return subprocess.run(["sh", SCRIPT], env=env, capture_output=True, text=True)
@@ -70,6 +71,26 @@ def test_dual_in_map_ipv4_only_and_unknown_not(node):
     r = run(node)
     assert r.returncode == 0, r.stderr
     assert ips(node) == ["10.9.0.2"]  # openvpn_only dual без пира AWG3 - не ошибка и не запись
+
+
+def test_default_profile_dual_client_without_profile_line_is_in_map(node):
+    # клиент создан с профилем «по умолчанию» (строки в ipv6-profile.txt нет): IPv6 на сервере есть -> должен попасть в карту
+    node.profile.write_text("old ipv4\n")
+    node.conf.write_text(
+        HEAD + peer("new_az", "10.9.0.2/32, fd29:7::2/128, fd29:7:2::/64") + peer("new_vpn", "10.9.1.2/32, fd28:7::2/128")
+        + peer("old_az", "10.9.0.3/32, fd29:7::3/128") + peer("legacy_az", "10.9.0.4/32")
+    )
+    assert run(node).returncode == 0
+    assert ips(node) == ["10.9.0.2"]  # old - явный ipv4, legacy - без IPv6 на сервере, vpn-слой в карту не идёт
+
+
+def test_default_profile_ipv4_needs_explicit_dual_line(node):
+    setup = node.map.parent.parent / "setup"
+    setup.write_text("ENABLE_IPV6=y\nIPV6_PROFILE_DEFAULT='ipv4'\n")
+    node.profile.write_text("dev dual\n")
+    node.conf.write_text(HEAD + peer("dev_az", "10.9.0.2/32, fd29:7::2/128") + peer("new_az", "10.9.0.3/32, fd29:7::3/128"))
+    assert run(node).returncode == 0
+    assert ips(node) == ["10.9.0.2"]
 
 
 def test_paired_record_only_split_ip_and_name_without_suffix(node):
