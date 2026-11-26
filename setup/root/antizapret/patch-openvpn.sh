@@ -5,12 +5,11 @@
 #
 # chmod +x patch-openvpn.sh && ./patch-openvpn.sh [1-4]
 #
-# Доп. параметры окружения (для слабых роутеров типа Keenetic можно снизить
-# нагрузку на аплинк за счёт меньшего количества мусорных пакетов):
-#   NOISE_ROUNDS - число раундов мусора на пакет (по умолчанию 2, было 3)
-#   NOISE_BURST  - число мусорных пакетов в раунде (по умолчанию 20, было 50)
-#   Пример агрессивного оригинального поведения:
-#   NOISE_ROUNDS=3 NOISE_BURST=50 ./patch-openvpn.sh 4
+# Доп. параметры окружения (как у апстрима с 26.11: каждый мусорный пакет отдельный, случайной длины;
+# для слабых роутеров типа Keenetic можно снизить нагрузку на аплинк):
+#   NOISE_MIN   - минимум мусорных пакетов на пакет рукопожатия (по умолчанию 150)
+#   NOISE_RANGE - разброс: пакетов от NOISE_MIN до NOISE_MIN+NOISE_RANGE-1 (по умолчанию 51, т.е. 150-200)
+#   Мягкий режим, как было у нас до 26.11 (40 пакетов): NOISE_MIN=40 NOISE_RANGE=1 ./patch-openvpn.sh 4
 #
 set -e
 export LC_ALL=C
@@ -36,10 +35,11 @@ else
 	done
 fi
 
-NOISE_ROUNDS="${NOISE_ROUNDS:-2}"
-NOISE_BURST="${NOISE_BURST:-20}"
+NOISE_MIN="${NOISE_MIN:-150}"
+NOISE_RANGE="${NOISE_RANGE:-51}"
+[[ "$NOISE_MIN" =~ ^[0-9]+$ && "$NOISE_RANGE" =~ ^[1-9][0-9]*$ ]] || { echo 'NOISE_MIN/NOISE_RANGE must be numbers (RANGE >= 1)'; exit 1; }
 echo
-echo "Noise packets per handshake packet: $NOISE_ROUNDS rounds x $NOISE_BURST bursts = $((NOISE_ROUNDS * NOISE_BURST)) packets"
+echo "Noise packets per handshake packet: $NOISE_MIN-$((NOISE_MIN + NOISE_RANGE - 1))"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -114,8 +114,9 @@ link_socket_write_udp(struct link_socket *sock,\
 				return buffer_sent;\
 		}\
 		int buffer_len = BLEN(buf);\
-		for (int i = 0; i < '"$NOISE_ROUNDS"'; i++) {\
-			int data_len = (int)(random() % 81 + buffer_len);\
+		int write_num = '"$NOISE_MIN"' + (int)(random() % '"$NOISE_RANGE"');\
+		for (int i = 0; i < write_num; i++) {\
+			int data_len = (int)(random() % 100 + buffer_len + 1);\
 			uint8_t data[data_len];\
 			if (error_free) {\
 				memcpy(data, BPTR(buf), buffer_len);\
@@ -128,13 +129,11 @@ link_socket_write_udp(struct link_socket *sock,\
 			}\
 			struct buffer data_buffer = alloc_buf(data_len);\
 			buf_write(&data_buffer, data, data_len);\
-			for (int j = 0; j < '"$NOISE_BURST"'; j++) {\
 #ifdef _WIN32\
-				(void)link_socket_write_win32(sock, &data_buffer, to);\
+			(void)link_socket_write_win32(sock, &data_buffer, to);\
 #else\
-				(void)link_socket_write_udp_posix(sock, &data_buffer, to);\
+			(void)link_socket_write_udp_posix(sock, &data_buffer, to);\
 #endif\
-			}\
 			free_buf(&data_buffer);\
 		}\
 		if (error_free)\
