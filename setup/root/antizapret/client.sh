@@ -40,18 +40,25 @@ if [[ -z "$SERVER_IP" ]]; then
 fi
 [[ -r /etc/knot-resolver/ipv6-mode ]] && IPV6_MODE="$(cat /etc/knot-resolver/ipv6-mode)" # эффективный режим (при сбое выхода up.sh ставит a)
 IPV6_PROFILE_DEFAULT="${IPV6_PROFILE_DEFAULT:-dual}"
-# Профиль клиента: ipv4 (без IPv6) или dual. Файл config/ipv6-profile.txt: "имя ipv4|dual"
+# Профиль клиента: ipv4 (без IPv6) или dual. Файл config/ipv6-profile.txt: "имя ipv4|dual" - он главнее.
+# Если клиента в файле нет, берётся умолчание протокола из setup (IPV6_PROFILE_WG / IPV6_PROFILE_AWG2), затем общее IPV6_PROFILE_DEFAULT
 ipv6_profile() {
-	local p
+	local p proto_default
 	p="$(awk -v n="$1" '$1==n {print $2}' /root/antizapret/config/ipv6-profile.txt 2>/dev/null | tail -n 1)"
-	[[ "$p" == 'ipv4' || "$p" == 'dual' ]] || p="$IPV6_PROFILE_DEFAULT"
+	if [[ "$p" != 'ipv4' && "$p" != 'dual' ]]; then
+		case "$2" in
+			wg) proto_default="$IPV6_PROFILE_WG" ;;
+			awg2) proto_default="$IPV6_PROFILE_AWG2" ;;
+		esac
+		[[ "$proto_default" == 'ipv4' || "$proto_default" == 'dual' ]] && p="$proto_default" || p="$IPV6_PROFILE_DEFAULT"
+	fi
 	echo "$p"
 }
-# $1 = split|full, $2 = IPv6 клиента: выставляет CLIENT_IPV6_ADDR и IPV6_ALLOWED_IPS для render
+# $1 = split|full, $2 = IPv6 клиента, $3 = wg|awg2 (протокол): выставляет CLIENT_IPV6_ADDR и IPV6_ALLOWED_IPS для render
 ipv6_set() {
 	CLIENT_IPV6_ADDR=''
 	IPV6_ALLOWED_IPS=''
-	[[ "$(ipv6_profile "$CLIENT_NAME")" == 'dual' ]] || return 0
+	[[ "$(ipv6_profile "$CLIENT_NAME" "$3")" == 'dual' ]] || return 0
 	CLIENT_IPV6_ADDR=", $2/128"
 	if [[ "$1" == 'full' ]]; then
 		[[ "$IPV6_MODE" == 'b' || "$IPV6_MODE" == 'c' ]] && IPV6_ALLOWED_IPS=', ::/0'
@@ -279,7 +286,7 @@ AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 	fi
 
 	CLIENT_IPV6="fd29:8::$(printf '%x' "${CLIENT_IP##*.}")"
-	ipv6_set split "$CLIENT_IPV6"
+	ipv6_set split "$CLIENT_IPV6" wg
 	render "/etc/wireguard/templates/antizapret-client-wg.conf" > "/root/antizapret/client/wireguard/antizapret/antizapret-$FILE_NAME-wg.conf"
 	render "/etc/wireguard/templates/antizapret-client-am.conf" > "/root/antizapret/client/amneziawg/antizapret/antizapret-$FILE_NAME-am.conf"
 
@@ -319,7 +326,7 @@ AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 	fi
 
 	CLIENT_IPV6="fd28:8::$(printf '%x' "${CLIENT_IP##*.}")"
-	ipv6_set full "$CLIENT_IPV6"
+	ipv6_set full "$CLIENT_IPV6" wg
 	render "/etc/wireguard/templates/vpn-client-wg.conf" > "/root/antizapret/client/wireguard/vpn/vpn-$FILE_NAME-wg.conf"
 	render "/etc/wireguard/templates/vpn-client-am.conf" > "/root/antizapret/client/amneziawg/vpn/vpn-$FILE_NAME-am.conf"
 
@@ -454,7 +461,7 @@ AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 	fi
 
 	CLIENT_IPV6="fd29:9::$(printf '%x' "${CLIENT_IP##*.}")"
-	ipv6_set split "$CLIENT_IPV6"
+	ipv6_set split "$CLIENT_IPV6" awg2
 	render "$AWG2/templates/antizapret2-client.conf" > "/root/antizapret/client/amneziawg2/antizapret/antizapret2-$FILE_NAME-am2.conf"
 
 	# VPN
@@ -492,7 +499,7 @@ AllowedIPs = ${CLIENT_IP}/32, ${CLIENT_IPV6}/128
 	fi
 
 	CLIENT_IPV6="fd28:9::$(printf '%x' "${CLIENT_IP##*.}")"
-	ipv6_set full "$CLIENT_IPV6"
+	ipv6_set full "$CLIENT_IPV6" awg2
 	render "$AWG2/templates/vpn2-client.conf" > "/root/antizapret/client/amneziawg2/vpn/vpn2-$FILE_NAME-am2.conf"
 
 	echo "AmneziaWG 2.0 profile files (re)created for client '$CLIENT_NAME' at /root/antizapret/client/amneziawg2"

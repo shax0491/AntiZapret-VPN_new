@@ -459,6 +459,19 @@ git clone https://github.com/shax0491/AntiZapret-VPN_new.git /tmp/azr && cd /tmp
 Откат: `systemctl disable --now az-egress-monitor az-egress-guard` и `/root/az-guard/…/restore.sh` (подробно — `az-guard/README.md`).
 Повторный `setup.sh --update` берёт ответы из `/root/antizapret/setup` (`AZ_DUALSTACK`, `AZ_EGRESS_GUARD`, `AZ_REVERSE_TUNNEL`).
 
+### IPv6 по протоколам: OpenVPN, AmneziaWG 1.5, AmneziaWG 2.0, AmneziaWG 3.0
+
+Если включён Dual-Stack, установщик спрашивает про каждый протокол: `dual` (клиент получает IPv4 и IPv6) или `ipv4` (только IPv4). Ответы сохраняются в `/root/antizapret/setup`: `IPV6_PROFILE_OPENVPN`, `IPV6_PROFILE_WG` (WireGuard и AmneziaWG 1.5), `IPV6_PROFILE_AWG2`, `IPV6_PROFILE_AWG3`. Общее умолчание — `IPV6_PROFILE_DEFAULT`. Профиль отдельного клиента задаётся строкой `имя ipv4|dual` в `config/ipv6-profile.txt` (или в панели) и главнее умолчания протокола. Менять умолчания можно и в панели: Маршрутизация → AntiZapret.
+
+| Протокол | Как клиент получает IPv6 |
+|---|---|
+| OpenVPN | Автоматически, как и IPv4: сервер выдаёт адрес из `fd29:10::/64` (AntiZapret) или `fd28:10::/64` (полный VPN), конфиг менять не нужно. Клиентам с профилем `ipv4` сервер отправляет `push-remove "route-ipv6"` |
+| WireGuard / AmneziaWG 1.5 | Адрес `fd29:8::N` или `fd28:8::N` записывается в конфиг клиента при создании. Уже выданные конфиги не меняются: пересоздайте профиль клиента (`client.sh 4`) и отдайте его заново |
+| AmneziaWG 2.0 | То же, подсети `fd29:9::/64` и `fd28:9::/64` |
+| AmneziaWG 3.0 | Подсети `fd29:7::/64` и `fd28:7::/64`, карта dual-клиентов `az-dual-clients.sh` |
+
+На уже работающих узлах `up.sh` при каждом запуске сам дописывает IPv6-адрес серверным интерфейсам `antizapret`, `vpn`, `antizapret2`, `vpn2` и правит шаблоны клиентских профилей (адрес клиента, `::/0`, адрес сервера в скобках для IPv6). Правки идемпотентны. Если режим IPv6 `a` (только IPv4), ничего не меняется. IPv6 снаружи работает у клиента только при реальном IPv6 у его провайдера, а на сервере нужен нативный IPv6 или Proton (`IPV6_EGRESS=proton`).
+
 ### IPv6: режимы A / B / C
 
 По умолчанию IPv6 **выключен** (`IPV6_MODE=a`): клиентам отдаются только IPv4-адреса, пустые AAAA защищают от утечек IPv6 мимо туннеля. После установки всё работает как раньше, только по IPv4. Dual-Stack включается явно в `/root/antizapret/setup` (или в админ-панели: «Настройки AntiZapret», блок IPv6) и применяется перезапуском `systemctl restart antizapret`.

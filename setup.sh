@@ -42,6 +42,7 @@ AZ_DEFAULTS=(OPENVPN_UDP_ENABLE=y OPENVPN_TCP_ENABLE=n WIREGUARD_ENABLE=y AWG2_M
 	OPENVPN_DUPLICATE=y OPENVPN_LOG=n SSH_PROTECTION=y ATTACK_PROTECTION=y SCAN_PROTECTION=y
 	FLOOD_PROTECTION=y TORRENT_GUARD=y RESTRICT_FORWARD=y CLIENT_ISOLATION=y ROUTE_ALL=n CLOUDFLARE_INCLUDE=y
 	TELEGRAM_INCLUDE=y WHATSAPP_INCLUDE=y RECONNECT_WARP=n AZ_DUALSTACK=n AZ_EGRESS_GUARD=n AZ_REVERSE_TUNNEL=n
+	IPV6_PROFILE_OPENVPN=dual IPV6_PROFILE_WG=dual IPV6_PROFILE_AWG2=dual IPV6_PROFILE_AWG3=dual
 	WARP_PROVIDER_CHOICE=1)
 if [[ "$AZ_AUTO" == 'y' && "$AZ_UPDATE" != 'y' ]]; then
 	ANTIZAPRET_WARP="${ANTIZAPRET_WARP:-1}"
@@ -496,6 +497,18 @@ until [[ "$AZ_DUALSTACK" =~ (y|n) ]]; do
 	read -rp 'Enable IPv6 Dual-Stack (IPv6 routes, ip -6 rules, ip6tables for all VPN layers)? [y/n]: ' -e -i n AZ_DUALSTACK
 done
 echo
+# IPv6 для новых клиентов по протоколам: dual - клиент получает IPv4 и IPv6, ipv4 - только IPv4.
+# OpenVPN получает адрес сервера автоматически (server-ipv6), WireGuard/AmneziaWG - адрес в конфиге клиента.
+# Отдельным клиентам профиль можно менять в config/ipv6-profile.txt или в панели
+if [[ "$AZ_DUALSTACK" == 'y' ]]; then
+	for v in 'IPV6_PROFILE_OPENVPN:OpenVPN' 'IPV6_PROFILE_WG:WireGuard/AmneziaWG 1.5' 'IPV6_PROFILE_AWG2:AmneziaWG 2.0' 'IPV6_PROFILE_AWG3:AmneziaWG 3.0'; do
+		name="${v%%:*}"
+		until [[ "${!name}" =~ ^(ipv4|dual)$ ]]; do
+			read -rp "IPv6 for new ${v#*:} clients: dual (IPv4 + IPv6) or ipv4 (IPv4 only)? [dual/ipv4]: " -e -i dual "$name"
+		done
+	done
+	echo
+fi
 # Egress-Guard имеет смысл только если трафик слоёв уходит в Proton/WARP (охват WARP выбран выше)
 if [[ "$ANTIZAPRET_WARP" != '1' || "$VPN_WARP" != '1' ]]; then
 	echo 'Info: Egress-Guard blocks traffic leaking past the Proton/WARP exit tunnel; rules are applied with a 300 s auto-rollback'
@@ -873,6 +886,11 @@ TORRENT_GUARD=$TORRENT_GUARD
 RESTRICT_FORWARD=$RESTRICT_FORWARD
 CLIENT_ISOLATION=$CLIENT_ISOLATION
 AZ_DUALSTACK=$AZ_DUALSTACK
+IPV6_PROFILE_DEFAULT=${IPV6_PROFILE_DEFAULT:-dual}
+IPV6_PROFILE_OPENVPN=${IPV6_PROFILE_OPENVPN:-dual}
+IPV6_PROFILE_WG=${IPV6_PROFILE_WG:-dual}
+IPV6_PROFILE_AWG2=${IPV6_PROFILE_AWG2:-dual}
+IPV6_PROFILE_AWG3=${IPV6_PROFILE_AWG3:-dual}
 AZ_EGRESS_GUARD=$AZ_EGRESS_GUARD
 AZ_REVERSE_TUNNEL=$AZ_REVERSE_TUNNEL
 OPENVPN_HOST=$OPENVPN_HOST
@@ -901,6 +919,11 @@ VPN_OUT_INTERFACE=
 VPN_OUT_IP=$VPN_OUT_IP_SET
 CLIENT_IP=
 FAKE_IP=" > /tmp/antizapret/setup/root/antizapret/setup
+
+# Ключи IPv6, которых нет в шаблоне (режим IPv6, выход через Proton/relay): при --update setup пишется заново, без этого они терялись
+if [[ "$AZ_UPDATE" == 'y' && -f /root/antizapret/setup ]]; then
+	grep -E '^(IPV6_MODE|IPV6_EGRESS|IPV6_PROTON_INTERFACE|IPV6_RELAY_INTERFACE|ENABLE_IPV6)=' /root/antizapret/setup >> /tmp/antizapret/setup/root/antizapret/setup || true
+fi
 
 mkdir -p /var/cache/knot-resolver
 mkdir -p /var/cache/knot-resolver2

@@ -26,7 +26,9 @@ T=$(mktemp "$AZ_DUAL_MAP.XXXXXX") || die 2 "не удалось создать �
 trap 'rm -f "$T"' EXIT
 
 printf '' > "$T" || die 2 "не удалось записать временный файл $T, карта не изменена"
-DEF=$(sed -n "s/^IPV6_PROFILE_DEFAULT=//p" "$AZ_DUAL_SETUP" 2>/dev/null | tail -n 1 | tr -d "'\"")
+# умолчание AWG 3 из setup (IPV6_PROFILE_AWG3), иначе общее IPV6_PROFILE_DEFAULT
+DEF=$(sed -n "s/^IPV6_PROFILE_AWG3=//p" "$AZ_DUAL_SETUP" 2>/dev/null | tail -n 1 | tr -d "'\"")
+[ "$DEF" = ipv4 ] || [ "$DEF" = dual ] || DEF=$(sed -n "s/^IPV6_PROFILE_DEFAULT=//p" "$AZ_DUAL_SETUP" 2>/dev/null | tail -n 1 | tr -d "'\"")
 [ -n "$DEF" ] || DEF=dual # как в client.sh: без значения профиль по умолчанию dual
 # dual: явная строка "имя dual", либо (профиль по умолчанию dual) пир с IPv6 на сервере (fd29:7::N) без явной строки "имя ipv4".
 # Без второго правила клиент с профилем «по умолчанию» получал IPv6 в конфиге и на сервере, но не попадал в карту kresd (AAAA не отдавался).

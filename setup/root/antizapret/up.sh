@@ -509,6 +509,26 @@ for name in antizapret-udp antizapret-tcp vpn-udp vpn-tcp; do
 done
 systemctl restart kresd@1 kresd@2 kresd@3
 
+# IPv6-адреса серверных интерфейсов WireGuard/AmneziaWG 1.5 и AmneziaWG 2: в установках до 26.11 в conf только IPv4,
+# и IPv6-пиры не получали маршрут (шаблоны etc/*/templates уже содержат оба адреса). Дописываем в conf и на живой интерфейс
+if [[ "$IPV6_MODE" != 'a' ]]; then
+	for spec in 'wireguard|antizapret|fd29:8::1/64' 'wireguard|vpn|fd28:8::1/64' 'amneziawg|antizapret2|fd29:9::1/64' 'amneziawg|vpn2|fd28:9::1/64'; do
+		IFS='|' read -r wdir wif waddr6 <<< "$spec"
+		wconf="/etc/$wdir/$wif.conf"
+		[[ -f "$wconf" ]] || continue
+		grep -qF "$waddr6" "$wconf" || sed -i "/^Address = /{s|\$|, $waddr6|;:a;n;ba}" "$wconf"
+		ip link show dev "$wif" &>/dev/null && ip -6 addr replace "$waddr6" dev "$wif" || true
+	done
+	# Шаблоны клиентских профилей: IPv6-адрес клиента, маршрут ::/0 и адрес сервера в скобках для IPv6. Правим на месте, а не
+	# заменяем файлы: в шаблонах AmneziaWG 2 лежат параметры обфускации, они должны совпадать с серверным conf. Идемпотентно
+	for tpl in /etc/wireguard/templates/*client*.conf /etc/amneziawg/templates/*client*.conf; do
+		[[ -f "$tpl" ]] || continue
+		sed -i -e 's|^\(Address = \${CLIENT_IP}/32\)[[:space:]]*$|\1${CLIENT_IPV6_ADDR}|' \
+			-e 's|\${SERVER_HOST}:|${SERVER_ENDPOINT}:|' \
+			-e '/^AllowedIPs = /{/IPV6_ALLOWED_IPS/!s|$|${IPV6_ALLOWED_IPS}|}' "$tpl"
+	done
+fi
+
 # filter
 iptables -w -P INPUT ACCEPT
 iptables -w -P FORWARD ACCEPT
