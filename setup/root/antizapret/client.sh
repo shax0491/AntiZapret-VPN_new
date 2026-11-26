@@ -25,15 +25,19 @@ if (( $# > 3 )); then
 	exit 2
 fi
 
-SERVER_IP="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')"
-if [[ -z "$SERVER_IP" ]]; then
-	echo 'Default IPv4 address not found!'
-	exit 3
-fi
-
 export EASYRSA_PKI=/etc/openvpn/easyrsa3/pki
 cd /root/antizapret
 source setup
+
+# Входной IP из setup (узлы с двумя IP), иначе автоопределение
+SERVER_IP="$DEFAULT_IP"
+if [[ -z "$SERVER_IP" ]]; then
+	SERVER_IP="$(ip route get 1.2.3.4 2>/dev/null | grep -oP 'src \K\S+')"
+	if [[ -z "$SERVER_IP" ]]; then
+		echo 'Default IPv4 address not found!'
+		exit 3
+	fi
+fi
 [[ -r /etc/knot-resolver/ipv6-mode ]] && IPV6_MODE="$(cat /etc/knot-resolver/ipv6-mode)" # эффективный режим (при сбое выхода up.sh ставит a)
 IPV6_PROFILE_DEFAULT="${IPV6_PROFILE_DEFAULT:-dual}"
 # Профиль клиента: ipv4 (без IPv6) или dual. Файл config/ipv6-profile.txt: "имя ipv4|dual"

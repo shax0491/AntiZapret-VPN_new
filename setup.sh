@@ -58,6 +58,8 @@ if [[ "$AZ_UPDATE" == 'y' ]]; then
 		exit 11
 	fi
 	source /root/antizapret/setup
+	# Адреса узлов с двумя IP (в т.ч. заданные руками, например gre-схема) переживают обновление
+	DEFAULT_IP_SET="$DEFAULT_IP"; ANTIZAPRET_OUT_IP_SET="$ANTIZAPRET_OUT_IP"; VPN_OUT_IP_SET="$VPN_OUT_IP"
 	AZ_UPDATE_MTU="$MTU"
 	[[ "$WARP_PROVIDER" == 'cloudflare' ]] && WARP_PROVIDER_CHOICE=2 || WARP_PROVIDER_CHOICE=1
 	# Параметры, которых не было в setup на момент установки (их добавили в форк позже), получают
@@ -540,6 +542,17 @@ until [[ "$WHATSAPP_INCLUDE" =~ (y|n) ]]; do
 done
 echo
 
+# Узлы с двумя и более IP: входной (клиентские конфиги), выходные для AntiZapret и полного VPN.
+# Пусто = автоопределение. При обновлении/--auto не спрашиваем: значения берутся из окружения или setup.
+if [[ "$AZ_UPDATE" != 'y' && "$AZ_AUTO" != 'y' ]]; then
+	for v in 'DEFAULT_IP_SET:default input/output IP' 'ANTIZAPRET_OUT_IP_SET:AntiZapret VPN out IP' 'VPN_OUT_IP_SET:full VPN out IP'; do
+		name="${v%%:*}"
+		while read -rp "Enter ${v#*:} or press Enter to auto-detect: " -e "$name"; do
+			[[ -z "${!name}" || -n $(getent ahostsv4 "${!name}") ]] && break
+		done
+		echo
+	done
+fi
 echo 'Installation, please wait...'
 
 # На первой установке (и на переустановке до появления AmneziaWG 2) часть этих юнитов
@@ -881,11 +894,11 @@ CLEAR_HOSTS=y
 TXQUEUELEN=10000
 MTU=$VPN_MTU
 DEFAULT_INTERFACE=
-DEFAULT_IP=
+DEFAULT_IP=$DEFAULT_IP_SET
 ANTIZAPRET_OUT_INTERFACE=
-ANTIZAPRET_OUT_IP=
+ANTIZAPRET_OUT_IP=$ANTIZAPRET_OUT_IP_SET
 VPN_OUT_INTERFACE=
-VPN_OUT_IP=
+VPN_OUT_IP=$VPN_OUT_IP_SET
 CLIENT_IP=
 FAKE_IP=" > /tmp/antizapret/setup/root/antizapret/setup
 
