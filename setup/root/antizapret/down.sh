@@ -108,8 +108,11 @@ iptables -w -D FORWARD -d 91.105.192.0/23 -j REJECT --reject-with icmp-port-unre
 iptables -w -D FORWARD -d 91.105.192.0/23 -p tcp -j REJECT --reject-with tcp-reset
 # Torrent guard
 iptables -w -D FORWARD -s $IP.28.0.0/16 -p tcp -m string --string 'GET ' --algo kmp --to 100 -m string --string 'info_hash=' --algo bm -m string --string 'peer_id=' --algo bm -m string --string 'port=' --algo bm -j SET --add-set antizapret-torrent src --exist
+iptables -w -D FORWARD -s $IP.28.0.0/16 -p tcp -m length --length 300: -m string --string 'GET ' --algo kmp --to 100 -m string --string 'info_hash=' --algo bm -m string --string 'peer_id=' --algo bm -m string --string 'port=' --algo bm -j SET --add-set antizapret-torrent src --exist
 iptables -w -D FORWARD -s $IP.28.0.0/16 -p udp -m string --string 'BitTorrent protocol' --algo kmp --to 100 -j SET --add-set antizapret-torrent src --exist
+iptables -w -D FORWARD -s $IP.28.0.0/16 -p udp -m length --length 100: -m string --string 'BitTorrent protocol' --algo kmp --to 100 -j SET --add-set antizapret-torrent src --exist
 iptables -w -D FORWARD -s $IP.28.0.0/16 -p udp -m string --string 'd1:ad2:id20:' --algo kmp --to 100 -j SET --add-set antizapret-torrent src --exist
+iptables -w -D FORWARD -s $IP.28.0.0/16 -p udp -m length --length 100: -m string --string 'd1:ad2:id20:' --algo kmp --to 100 -j SET --add-set antizapret-torrent src --exist
 iptables -w -D FORWARD -s $IP.28.0.0/16 -m set --match-set antizapret-torrent src -j DROP
 # Restrict forwarding
 iptables -w -D FORWARD -s $IP.29.0.0/16 -m connmark --mark 0x1 -m set ! --match-set antizapret-forward dst -j DROP
@@ -142,6 +145,12 @@ ip6tables -w -D INPUT -i $DEFAULT_INTERFACE -m conntrack --ctstate NEW -j SET --
 iptables -w -D FORWARD -s $IP.28.0.0/15 -m conntrack --ctstate NEW -m hashlimit --hashlimit-name antizapret-new --hashlimit-mode srcip --hashlimit-above 100/sec --hashlimit-burst 1000 --hashlimit-htable-expire 10000 -j DROP
 iptables -w -D INPUT -s $IP.28.0.0/15 -d 127.0.0.0/8 -m hashlimit --hashlimit-name antizapret-dns --hashlimit-mode srcip --hashlimit-above 100/sec --hashlimit-burst 1000 --hashlimit-htable-expire 10000 -j DROP
 iptables -w -D FORWARD -s $IP.28.0.0/15 -m conntrack --ctstate NEW -m connlimit --connlimit-above 1000 --connlimit-mask 32 -j DROP
+# правила flood protection текущей версии up.sh (старые строки выше убирают остатки предыдущей)
+for wif in $DNS_WARP_INTERFACE $ANTIZAPRET_WARP_INTERFACE $VPN_WARP_INTERFACE; do
+	iptables -w -D FORWARD -o $wif -m conntrack --ctstate NEW -m hashlimit --hashlimit-name $wif-new --hashlimit-above 1000/sec --hashlimit-burst 1 --hashlimit-htable-expire 1000 -j DROP 2>/dev/null || true
+done
+iptables -w -D INPUT -s $IP.28.0.0/15 -p tcp -m tcp --dport 53 --tcp-flags PSH PSH -m hashlimit --hashlimit-name antizapret-dns-tcp --hashlimit-mode srcip --hashlimit-above 100/sec --hashlimit-burst 1000 --hashlimit-htable-expire 10000 -j DROP 2>/dev/null || true
+iptables -w -D INPUT -s $IP.28.0.0/15 -p udp -m udp --dport 53 -m hashlimit --hashlimit-name antizapret-dns-udp --hashlimit-mode srcip --hashlimit-above 100/sec --hashlimit-burst 1000 --hashlimit-htable-expire 10000 -j DROP 2>/dev/null || true
 
 # Scan protection
 iptables -w -D INPUT -i $DEFAULT_INTERFACE -p icmp --icmp-type echo-request -j DROP
