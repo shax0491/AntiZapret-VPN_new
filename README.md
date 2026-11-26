@@ -426,6 +426,8 @@ Hysteria2 поставлен на все 7 VPN-узлов **дополнител
 * **Egress-Guard.** Трафик клиентских слоёв (AWG 1.5/2/3, WireGuard, OpenVPN) помечается в `mangle` (fwmark `0x1f40`), уходит в отдельную таблицу маршрутизации 100 (egress Proton/WARP + `blackhole default` в конце) и ограничивается цепочкой `AZ_EGRESS_GUARD` в `FORWARD` (клиент → только `-o egress`, иначе DROP/REJECT). Для клиентских подсетей ставится SNAT/MASQUERADE `AZ_EGRESS_NAT`. Принцип: **если выход Proton/WARP упал, клиент остаётся без интернета, а не уходит в обход туннеля с IP сервера**. Монитор раз в 30 секунд проверяет handshake и HTTPS каждого egress, переносит мёртвый выход за blackhole и возвращает правила (в т.ч. после `networkctl reconfigure` и перезапуска `antizapret`). Egress IP обязан отличаться от входного IP узла.
 * **Reverse-Tunnel.** Подготавливается только шаблон `/etc/wireguard/azr1.conf.example`; боевой туннель (relay ↔ exit) создаёт AdminPanel (раздел узла → Reverse-Tunnel). Установщик `wg-quick@azr1` не запускает.
 
+Изменения, подтянутые из апстрима 26.11.2026: `FLOOD_PROTECTION` не режет WARP (лимит новых соединений стоит на самих WARP-интерфейсах, DNS лимитируется отдельно по tcp/udp, `connlimit` убран); `TORRENT_GUARD` проверяет длину пакета; `patch-openvpn.sh` шлёт 150–200 мусорных пакетов на пакет рукопожатия (регулируется `NOISE_MIN` и `NOISE_RANGE`, мягкий режим как раньше: `NOISE_MIN=40 NOISE_RANGE=1`); OpenVPN UDP получил буферы 16 МБ.
+
 ### Установка с нуля
 
 ```bash
@@ -436,6 +438,8 @@ bash <(curl -sSL https://raw.githubusercontent.com/shax0491/AntiZapret-VPN_new/m
 
 | Вопрос | Что отвечать |
 |---|---|
+| `Enter default input/output IP ...` | Только для серверов с несколькими IP (например, схема «входной IP / выходной IP» через GRE). Входной IP попадает в клиентские конфиги. Пусто — определится автоматически. При `--auto` и `--update` не спрашивается, значения из старого `setup` сохраняются. |
+| `Enter AntiZapret VPN out IP ...` / `Enter full VPN out IP ...` | Исходящие IP для AntiZapret и полного VPN. Пусто — автоопределение. Входящие подключения на выходной IP блокируются. Те же параметры есть в панели (Маршрутизация → AntiZapret). |
 | `Enable IPv6 Dual-Stack ...?` | `y` только если у сервера есть **нативный** IPv6 (проверьте `curl -6 https://ifconfig.co`). Иначе `n`. |
 | `Enable Egress-Guard ...?` (задаётся только если выбран WARP/Proton) | `y`, если весь исходящий трафик клиентов должен выходить через Proton/WARP и никогда напрямую. |
 | `Prepare Reverse-Tunnel template ...?` | `y`, если узел будет «выходом» для relay-узла в РФ; туннель потом создаётся из панели. |
